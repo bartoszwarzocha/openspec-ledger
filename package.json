@@ -1,0 +1,451 @@
+{
+  "name": "openspec-ledger",
+  "displayName": "OpenSpec Ledger",
+  "description": "The only OpenSpec extension with a memory: see what moved this week, what has been stuck for months, and whether a ticked box is backed by real commits.",
+  "version": "0.1.0",
+  "publisher": "bartosz-warzocha",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bartoszwarzocha/openspec-ledger.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bartoszwarzocha/openspec-ledger/issues"
+  },
+  "homepage": "https://github.com/bartoszwarzocha/openspec-ledger#readme",
+  "icon": "resources/icon.png",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "openspec",
+    "spec-driven",
+    "tasks",
+    "progress",
+    "stalled",
+    "audit",
+    "claude",
+    "copilot",
+    "agent",
+    "changelog"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "openspec-ledger",
+          "title": "OpenSpec Ledger",
+          "icon": "resources/activity-bar.svg"
+        }
+      ]
+    },
+    "views": {
+      "openspec-ledger": [
+        {
+          "id": "openspecLedger.overview",
+          "name": "Overview",
+          "type": "webview",
+          "contextualTitle": "OpenSpec Ledger",
+          "visibility": "visible",
+          "size": 1,
+          "initialSize": 1
+        },
+        {
+          "id": "openspecLedger.ledger",
+          "name": "Ledger",
+          "icon": "resources/activity-bar.svg",
+          "contextualTitle": "OpenSpec Ledger",
+          "size": 1,
+          "initialSize": 1
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "openspecLedger.ledger",
+        "contents": "No folder is open, so there is nothing to audit.\n[Open Folder](command:vscode.openFolder)",
+        "when": "openspecLedger.state == noWorkspace"
+      },
+      {
+        "view": "openspecLedger.ledger",
+        "contents": "No openspec directory was found.\n\nRoots are discovered at any depth beneath the open folders, so a nested repository is found too - but a root outside the open folders is not.\n[Add a root outside the workspace](command:openspecLedger.openAdditionalRootsSetting)\n[Refresh](command:openspecLedger.refresh)",
+        "when": "openspecLedger.state == noRoots"
+      }
+    ],
+    "commands": [
+      {
+        "command": "openspecLedger.refresh",
+        "title": "Refresh",
+        "category": "OpenSpec Ledger",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "openspecLedger.setSortMode",
+        "title": "Sort Changes By...",
+        "category": "OpenSpec Ledger",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "openspecLedger.movementReport",
+        "title": "Movement Report",
+        "category": "OpenSpec Ledger",
+        "icon": "$(graph-line)"
+      },
+      {
+        "command": "openspecLedger.openChangeDetail",
+        "title": "Open Change Detail",
+        "category": "OpenSpec Ledger",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "openspecLedger.revealChangeFolder",
+        "title": "Reveal Change Folder",
+        "category": "OpenSpec Ledger"
+      },
+      {
+        "command": "openspecLedger.handoffTask",
+        "title": "Hand Task to Claude Code",
+        "category": "OpenSpec Ledger",
+        "icon": "$(send)"
+      },
+      {
+        "command": "openspecLedger.handoffSection",
+        "title": "Hand Section to Claude Code",
+        "category": "OpenSpec Ledger",
+        "icon": "$(send)"
+      },
+      {
+        "command": "openspecLedger.copyTaskPrompt",
+        "title": "Copy Task Prompt",
+        "category": "OpenSpec Ledger",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "openspecLedger.openAdditionalRootsSetting",
+        "title": "Configure Additional Roots",
+        "category": "OpenSpec Ledger"
+      },
+      {
+        "command": "openspecLedger.rescanTranscripts",
+        "title": "Rescan Claude Code Transcripts",
+        "category": "OpenSpec Ledger"
+      },
+      {
+        "command": "openspecLedger.showOutput",
+        "title": "Show Log",
+        "category": "OpenSpec Ledger"
+      },
+      {
+        "command": "openspecLedger.setFilter",
+        "title": "Filter Changes...",
+        "category": "OpenSpec Ledger",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "openspecLedger.clearFilter",
+        "title": "Clear Filter",
+        "category": "OpenSpec Ledger",
+        "icon": "$(filter-filled)"
+      },
+      {
+        "command": "openspecLedger.archiveChange",
+        "title": "Archive Change...",
+        "category": "OpenSpec Ledger",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "openspecLedger.hideItem",
+        "title": "Hide from the Ledger",
+        "category": "OpenSpec Ledger",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "openspecLedger.manageHidden",
+        "title": "Show Hidden Items...",
+        "category": "OpenSpec Ledger"
+      },
+      {
+        "command": "openspecLedger.handoffTaskToChat",
+        "title": "Send Task to Chat",
+        "category": "OpenSpec Ledger",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "openspecLedger.openChangeFile",
+        "title": "Open proposal.md",
+        "category": "OpenSpec Ledger",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "openspecLedger.archiveCompleted",
+        "title": "Archive Completed Changes...",
+        "category": "OpenSpec Ledger",
+        "icon": "$(archive)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "openspecLedger.setFilter",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/ && !openspecLedger.filtered",
+          "group": "navigation@1"
+        },
+        {
+          "command": "openspecLedger.clearFilter",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/ && openspecLedger.filtered",
+          "group": "navigation@1"
+        },
+        {
+          "command": "openspecLedger.setSortMode",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "openspecLedger.refresh",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/",
+          "group": "navigation@3"
+        },
+        {
+          "command": "openspecLedger.archiveCompleted",
+          "when": "view =~ /^openspecLedger.(ledger|overview)$/",
+          "group": "1_ledger@0"
+        },
+        {
+          "command": "openspecLedger.movementReport",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/",
+          "group": "1_ledger@1"
+        },
+        {
+          "command": "openspecLedger.manageHidden",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/",
+          "group": "1_ledger@2"
+        },
+        {
+          "command": "openspecLedger.rescanTranscripts",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/",
+          "group": "1_ledger@3"
+        },
+        {
+          "command": "openspecLedger.showOutput",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/",
+          "group": "1_ledger@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "openspecLedger.openChangeFile",
+          "when": "view == openspecLedger.ledger && viewItem =~ /^change/",
+          "group": "inline@1"
+        },
+        {
+          "command": "openspecLedger.archiveChange",
+          "when": "view == openspecLedger.ledger && viewItem == change-complete",
+          "group": "inline@2"
+        },
+        {
+          "command": "openspecLedger.openChangeFile",
+          "when": "view == openspecLedger.ledger && viewItem =~ /^change/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "openspecLedger.revealChangeFolder",
+          "when": "view == openspecLedger.ledger && viewItem =~ /^change/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "openspecLedger.archiveChange",
+          "when": "view == openspecLedger.ledger && viewItem == change-complete",
+          "group": "2_act@1"
+        },
+        {
+          "command": "openspecLedger.hideItem",
+          "when": "view == openspecLedger.ledger && viewItem =~ /^(change|root)/",
+          "group": "9_hide@1"
+        },
+        {
+          "command": "openspecLedger.handoffSection",
+          "when": "view == openspecLedger.ledger && viewItem == section-incomplete",
+          "group": "inline@1"
+        },
+        {
+          "command": "openspecLedger.handoffTask",
+          "when": "view == openspecLedger.ledger && viewItem =~ /^task-(pending|inprogress)/",
+          "group": "inline@1"
+        },
+        {
+          "command": "openspecLedger.handoffTask",
+          "when": "view == openspecLedger.ledger && viewItem =~ /^task-(pending|inprogress)/",
+          "group": "2_handoff@1"
+        },
+        {
+          "command": "openspecLedger.handoffTaskToChat",
+          "when": "view == openspecLedger.ledger && viewItem =~ /^task-(pending|inprogress)/",
+          "group": "2_handoff@2"
+        },
+        {
+          "command": "openspecLedger.copyTaskPrompt",
+          "when": "view == openspecLedger.ledger && viewItem =~ /^task-(pending|inprogress)/",
+          "group": "2_handoff@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "openspecLedger.openChangeDetail",
+          "when": "false"
+        },
+        {
+          "command": "openspecLedger.revealChangeFolder",
+          "when": "false"
+        },
+        {
+          "command": "openspecLedger.handoffTask",
+          "when": "false"
+        },
+        {
+          "command": "openspecLedger.handoffTaskToChat",
+          "when": "false"
+        },
+        {
+          "command": "openspecLedger.handoffSection",
+          "when": "false"
+        },
+        {
+          "command": "openspecLedger.copyTaskPrompt",
+          "when": "false"
+        },
+        {
+          "command": "openspecLedger.archiveChange",
+          "when": "false"
+        },
+        {
+          "command": "openspecLedger.hideItem",
+          "when": "false"
+        },
+        {
+          "command": "openspecLedger.openChangeFile",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpenSpec Ledger",
+      "properties": {
+        "openspecLedger.additionalRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine-overridable",
+          "markdownDescription": "Absolute directory paths searched for OpenSpec roots in addition to the open workspace folders. Use this for a repository you have not opened in the editor. A path that does not exist is reported once in the log and skipped."
+        },
+        "openspecLedger.sortMode": {
+          "type": "string",
+          "enum": [
+            "name",
+            "progress",
+            "nearest-done",
+            "stalled",
+            "created"
+          ],
+          "enumDescriptions": [
+            "Alphabetical by change identifier",
+            "Descending by completion percentage",
+            "Ascending by the number of incomplete tasks remaining",
+            "Descending by days since the change last advanced",
+            "Descending by creation date"
+          ],
+          "default": "name",
+          "description": "Initial ordering of changes. The mode chosen from the view title is remembered per workspace and overrides this."
+        },
+        "openspecLedger.gitEvidence.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Look for a commit that corroborates each completed task. This is a **heuristic** over the task's own wording and will miss refactors, so it is off until you have judged its accuracy on your own repositories. When off, no git command is run for evidence purposes."
+        },
+        "openspecLedger.claudeEvidence.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Read Claude Code transcripts from this machine to report which sessions worked on a change, at what estimated cost, and which files they edited. Everything stays local: nothing is transmitted and no prompt text is displayed. When off, no transcript file is opened."
+        },
+        "openspecLedger.handoff.command": {
+          "type": "string",
+          "default": "claude",
+          "description": "Command used to start Claude Code when a new terminal has to be created for a handoff."
+        },
+        "openspecLedger.handoff.template": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Overrides the handoff prompt. Placeholders: {change}, {number}, {task}, {tasksPath}, {line}, {proposal}, {root}. Empty means the built-in prompt."
+        },
+        "openspecLedger.staleAfterDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "markdownDescription": "Days without advancing after which a change is marked stale and carries a warning icon. `0` turns the warning off. A change at 100 % is never stale - what it waits for is archiving, not attention."
+        },
+        "openspecLedger.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine-overridable",
+          "markdownDescription": "Absolute paths of roots or change directories to leave out of the Ledger entirely. Use **Hide from the Ledger** in the context menu to add one, and **Show Hidden Items...** to bring it back. Hidden items are excluded from every count, badge and ranking."
+        },
+        "openspecLedger.handoff.target": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "chat",
+            "clipboard"
+          ],
+          "enumDescriptions": [
+            "Write the prompt into a terminal running the configured Claude Code command",
+            "Open the editor's chat with the prompt typed in, for Copilot and other chat extensions",
+            "Copy the prompt to the clipboard and say so"
+          ],
+          "default": "terminal",
+          "markdownDescription": "Where **Hand Task to Claude Code** sends its prompt. Choosing `chat` when no chat extension is installed falls back to the clipboard rather than doing nothing."
+        },
+        "openspecLedger.archive.command": {
+          "type": "string",
+          "default": "openspec archive",
+          "markdownDescription": "Command written into a terminal to archive a completed change; the change name is appended. This is **not** a directory move: `openspec archive` also folds the change's spec deltas into `openspec/specs/`, which is why the extension runs the CLI rather than reimplementing it. The command is typed into the terminal without a newline, so nothing runs until you press Enter."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run clean && npm run check-types && npm run lint && node esbuild.js --production",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "vsix": "npm run package && npx --yes @vscode/vsce package",
+    "test:watch": "node --test --watch \"src/**/*.test.ts\"",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.8",
+    "@types/vscode": "^1.104.0",
+    "@typescript-eslint/eslint-plugin": "^8.45.0",
+    "@typescript-eslint/parser": "^8.45.0",
+    "esbuild": "^0.25.10",
+    "eslint": "^9.36.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3"
+  }
+}

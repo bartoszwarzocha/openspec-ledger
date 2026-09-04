@@ -1,0 +1,8 @@
+# The repository was written on Windows but is stored with LF, so a checkout on
+# any platform produces the same bytes and git stops warning about the swap.
+* text=auto eol=lf
+
+*.png binary
+
+# Generated, large, and never worth reading in a diff or a review.
+package-lock.json -diff linguist-generated=true

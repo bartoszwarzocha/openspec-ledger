@@ -1,0 +1,89 @@
+schema: spec-driven
+
+context: |
+  ## Project: OpenSpec Ledger
+
+  A VS Code extension that sits on top of OpenSpec and answers the two questions the
+  existing OpenSpec extensions do not: **is the checked-off task actually backed by
+  code, and is this change still moving?**
+
+  ## Why this exists
+
+  Seven OpenSpec extensions are already on the Marketplace (OpenSpec by Codder13 with
+  ~8.5k installs, OpenSpec Task Viewer, spek, OpenSpecCodeExplorer, OpenSpec for
+  Copilot, OpenSpec for VSCode, vscode-openspec). All of them render the same thing:
+  the current state of the checkboxes. None of them remembers yesterday, and none of
+  them verifies anything.
+
+  In agent-driven spec-driven development the agent ticks its own boxes. A `- [x]` is
+  a character in a markdown file, not evidence. This project treats it as a claim and
+  looks for corroboration in two independent places: the git history and the Claude
+  Code transcripts.
+
+  ## Measured baseline (D:\work\projects, 2026-09-04)
+
+  - 14 `openspec/` roots, 8 of them with active changes, 33 active changes total
+  - 10 changes at 100% still sitting in `changes/` — never archived
+  - 8 changes one task short of done; one at 61/63
+  - `indexer` alone: 4 changes, 11 of 340 tasks done
+  - 4 changes carry no `tasks.md` at all
+  - ~2,950 references to `openspec/changes/<name>` across 30 Claude Code transcripts
+
+  ## Tech Stack
+
+  - Language: TypeScript (strict), targeting the VS Code extension host (Node)
+  - UI: native `TreeDataProvider` / `TreeView` in the Activity Bar; webview only for detail panels
+  - Build: esbuild bundle to `dist/extension.js`, `vscode` external
+  - Lint/types: eslint + `tsc --noEmit`
+  - Git access: `git` CLI via `child_process`, never a JS git reimplementation
+  - Storage: `ExtensionContext.globalStorageUri` for history; no files written into user repos by default
+
+  ## Key Architecture Concepts
+
+  - **Discovery is recursive.** `openspec/` roots are found anywhere under the open
+    workspace folders, not only at their root. The reference topology nests them nine
+    deep inside one repository tree.
+  - **Three evidence sources, ranked.** The checkbox is a claim; git is corroboration;
+    the Claude Code transcript is provenance. They are shown side by side and never
+    merged into a single score.
+  - **Signals, not verdicts.** Git matching is heuristic. Every derived judgement is
+    presented as "no trace found", never as "this is a lie", and every signal is
+    traceable to the command that produced it.
+  - **History is reconstructible.** Progress snapshots live outside the repo, because
+    `git log` over `tasks.md` can rebuild the entire curve from scratch on a new machine.
+  - **Transcripts are large.** ~100 MB of JSONL. Parsing is lazy, cached by mtime+size,
+    and never on the activation path.
+
+  ## Prior art constraints
+
+  - The OpenSpec CLI has no monorepo mode; its answer to multi-repo is Stores (beta),
+    a separate planning repository. Discovery must not assume Stores, and must not
+    break if a team adopts it.
+  - The task file format is a convention, not a published schema. Parsing must degrade
+    gracefully on anything it does not recognise rather than drop the change.
+
+rules:
+  proposal:
+    - State what the extension does that the seven existing ones do not; the differentiator is the whole point
+    - Every claim about the current state of the world must come from a measurement, not an assumption
+    - Name the capabilities that will become spec files, one bullet each
+    - Be explicit about what is table stakes (parity with existing extensions) versus what is new
+    - Include an Impact section covering performance, storage location and privacy
+  specs:
+    - Use Given/When/Then (WHEN/THEN) scenarios for every requirement
+    - Every requirement must be observable from outside the extension - a tree label, a command result, a file on disk
+    - Cover the degenerate cases explicitly: no tasks.md, no git repo, no transcripts, empty workspace
+    - Heuristic behaviour must specify what the user sees when the heuristic fails
+    - Never specify a requirement that needs an undocumented Claude Code internal beyond the transcript and session files
+  design:
+    - Record each decision as D1, D2, ... with the alternatives that were rejected and why
+    - Justify native TreeView versus webview for each surface
+    - State the performance budget for every operation that touches the filesystem
+    - Address what happens when OpenSpec Stores (beta) is adopted
+    - Name the modules and their boundaries before naming their contents
+  tasks:
+    - Break tasks into chunks of max 2 hours each
+    - Group by capability, ordered so that each group ends in something demonstrable
+    - Phase 1-3 must be shippable on their own; the evidence layers build on them
+    - Each task independently testable, with its test task adjacent
+    - First tasks are discovery and the parser, because everything else reads their output
