@@ -2,7 +2,7 @@
   "name": "openspec-ledger",
   "displayName": "OpenSpec Ledger",
   "description": "The only OpenSpec extension with a memory: see what moved this week, what has been stuck for months, and whether a ticked box is backed by real commits.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "bartosz-warzocha",
   "license": "MIT",
   "repository": {

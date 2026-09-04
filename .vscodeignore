@@ -29,6 +29,9 @@ CLAUDE.md
 **/*.test.ts
 test-fixtures/**
 
+# Tekst promocyjny, nie czesc rozszerzenia
+openspec-ledger-czat.txt
+
 # Misc
 npm-debug.log*
 *.log

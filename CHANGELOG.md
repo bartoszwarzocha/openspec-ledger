@@ -7,6 +7,14 @@ All notable changes to OpenSpec Ledger are recorded here. The format follows
 The version numbers follow the phasing set out in the change proposal: each release ends in
 something demonstrable rather than in a half-finished layer.
 
+## [0.1.1] - 2026-09-04
+
+### Added
+
+- A screenshot in the README, and a note at the top naming the two agents the handoff and the
+  provenance layer work with: Claude Code and GitHub Copilot. Everything else works with no agent
+  at all, which the note says as plainly as it says the rest.
+
 ## [0.1.0] - 2026-09-04
 
 First release: parity with the existing OpenSpec extensions, plus the two things none of them
@@ -58,4 +66,5 @@ The Claude Code layer is off for a different reason: it reads files that contain
 Nothing leaves the machine and no prompt text is ever displayed, but reading them at all should be
 your decision rather than a default.
 
+[0.1.1]: https://github.com/bartoszwarzocha/openspec-ledger/releases/tag/v0.1.1
 [0.1.0]: https://github.com/bartoszwarzocha/openspec-ledger/releases/tag/v0.1.0

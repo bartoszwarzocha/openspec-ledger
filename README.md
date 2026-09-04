@@ -3,7 +3,7 @@
 **OpenSpec answers one project at a time, in the present tense. This answers all of them, over
 time.**
 
-![OpenSpec Ledger](resources/screenshot.png)
+![OpenSpec Ledger](resources/screenshot.jpg)
 
 > ### Works with your agent, whichever one that is
 >
