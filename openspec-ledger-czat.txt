@@ -1,16 +1,19 @@
 Wiem, że openspec ma swoje komendy analityczne. Wiem, że istnieją też różne dodatki do openspeca.
 Ale w projektach z wieloma repozytoriami, jak np. dmtAuth, komendy openspeca stają się mało wygodne, a dodatki nie robią nic, poza wskazaniem "tu i teraz".
 To co chcę Wam zaproponować, to dodatek do VS Code, jakiego dotąd nie było.
+Pozostałe narzędzia pokazują wyłącznie stan bieżący. To jako jedyne rejestruje postęp w czasie: wskazuje zmiany, które od miesięcy nie posunęły się naprzód, i weryfikuje, czy ukończone zadanie ma odzwierciedlenie w kodzie.
+
 Zbudowany na doświadczeniu, oferuje kilka bardzo wygodnych funkcji:
 
-- Widzi wszystkie repozytoria naraz, na dowolnej głębokości. U nas: 14 rootów, 33 zmiany, jeden widok.
-- Odtwarza historię postępu z git log przy pierwszym uruchomieniu, więc działa od pierwszej minuty.
-- Pokazuje, co stoi i od jak dawna. U nas od razu wyszła zmiana 109/110, nietknięta 203 dni.
-- Raport: co ruszyło w tym tygodniu, a co nie.
-- Zmiany gotowe do archiwizacji: licznik, filtr i archiwizacja wszystkich jednym kliknięciem.
-- Sprawdza, czy "ptaszek" ma pokrycie w kodzie. Szuka śladu w gicie i w transkryptach Claude Code.
-- Pokazuje, które sesje agenta pracowały nad zmianą i jakie pliki naprawdę zmieniły.
-- Oddaje zadanie agentowi: prompt trafia do terminala Claude Code albo do czatu Copilota.
-- Checkboxy klikane w drzewie zapisują się wprost do tasks.md.
+- Wykrywa wszystkie katalogi openspec/ w otwartych folderach, na dowolnej głębokości, i prezentuje je w jednym drzewie.
+- Przy pierwszym uruchomieniu odtwarza historię postępu na podstawie git log.
+- Wskazuje zmiany bez postępu wraz z liczbą dni od ostatniej aktywności.
+- Generuje raport postępu za wybrany okres.
+- Zlicza zmiany gotowe do archiwizacji, filtruje listę do nich i pozwala zarchiwizować je jednym poleceniem.
+- Weryfikuje, czy ukończone zadanie ma odzwierciedlenie w commitach oraz w transkryptach Claude Code.
+- Wskazuje sesje agenta powiązane ze zmianą wraz z listą zmodyfikowanych plików.
+- Przekazuje zadanie do terminala Claude Code lub czatu Copilota wraz z gotowym promptem.
+- Zapisuje zaznaczenie checkboxa bezpośrednio w pliku tasks.md.
+(Weryfikacja w gicie i odczyt transkryptów są domyślnie wyłączone)
 
-(Obie warstwy dowodowe domyślnie wyłączone)
+Dodatek znajdziecie w VS Code Marketplace lub tutaj: https://marketplace.visualstudio.com/items?itemName=bartosz-warzocha.openspec-ledger
