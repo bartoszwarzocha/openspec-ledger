@@ -3,6 +3,19 @@
 **OpenSpec answers one project at a time, in the present tense. This answers all of them, over
 time.**
 
+![OpenSpec Ledger](resources/screenshot.png)
+
+> ### Works with your agent, whichever one that is
+>
+> **Claude Code** — sessions, cost and the files they actually edited, read from the transcripts
+> on your own machine. Hand a task straight to a Claude Code terminal.
+>
+> **GitHub Copilot** — hand a task to Copilot Chat with one click, with the change, the task and
+> its file already in the prompt.
+>
+> Everything else works with no agent at all.
+
+
 `openspec list` is per-project: it reads the directory you are standing in. Seven Marketplace
 extensions render the same thing inside the editor, and all of them look for `openspec/` at the
 workspace root. If your work lives in one repository and you run the CLI often, you may not need
