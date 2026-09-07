@@ -37,6 +37,16 @@ export interface ChangeDetailContent {
   lastAdvanced?: string;
   gitEvidence?: ChangeGitEvidence;
   claudeEvidence?: ChangeClaudeEvidence;
+  /**
+   * Layers still being read, so their sections say so instead of standing in
+   * for an answer.
+   *
+   * An absent `gitEvidence` already means something - the layer is off - and
+   * that sentence tells the reader to go and turn it on. Reusing it for "not
+   * yet" would tell them to turn on something that is already on. So the two
+   * cases are distinguished here rather than inferred from an absence.
+   */
+  pending?: { git?: boolean; claude?: boolean };
   onDismiss?: (taskKey: string) => void;
 }
 
@@ -94,6 +104,25 @@ export class ChangeDetailPanel {
     );
 
     panel.webview.html = renderHtml(content, createNonce());
+  }
+
+  /**
+   * Replace the content of a panel that is already open, and only that.
+   *
+   * Deliberately does not create a panel and deliberately does not reveal one.
+   * This is what an evidence layer calls when it finally answers, which can be
+   * seconds after the click - by which time the reader may have closed the
+   * panel, or moved to another editor. Reopening it would resurrect something
+   * they dismissed; revealing it would snatch focus back from whatever they
+   * moved on to. Both are worse than the update quietly not happening.
+   */
+  static update(key: string, content: ChangeDetailContent): void {
+    const entry = panels.get(key);
+    if (!entry) {
+      return;
+    }
+    entry.content = content;
+    entry.panel.webview.html = renderHtml(content, createNonce());
   }
 
   static dispose(): void {
@@ -319,8 +348,8 @@ export function renderHtml(content: ChangeDetailContent, nonce: string): string 
 <body>
 ${renderHeader(content)}
 ${renderHistory(content)}
-${renderGitEvidence(content.gitEvidence)}
-${renderClaudeEvidence(content.claudeEvidence)}
+${renderGitEvidence(content.gitEvidence, content.pending?.git === true)}
+${renderClaudeEvidence(content.claudeEvidence, content.pending?.claude === true)}
 <script nonce="${nonce}">${SCRIPT}</script>
 </body>
 </html>`;
@@ -462,7 +491,31 @@ ${ticks}
 </section>`;
 }
 
-function renderGitEvidence(evidence: ChangeGitEvidence | undefined): string {
+/**
+ * The block a section shows while its layer is still being read.
+ *
+ * Both evidence layers spawn processes - the git one runs a search per
+ * completed task, the Claude one reads a transcript corpus - and either can
+ * take seconds on a large change. The panel used to wait for both before it
+ * existed at all, so a click produced nothing at all for that whole time. Now
+ * the panel is there immediately and this says which half of it is still
+ * coming, which is the difference between waiting and wondering.
+ */
+function renderWaiting(heading: string, what: string): string {
+  return `<section>
+<h2>${escapeHtml(heading)}</h2>
+<div class="waiting"><div class="busy" role="status" aria-label="Loading"><span></span></div>
+<p class="empty">${escapeHtml(what)}</p></div>
+</section>`;
+}
+
+function renderGitEvidence(evidence: ChangeGitEvidence | undefined, pending = false): string {
+  if (pending) {
+    return renderWaiting(
+      'Git evidence',
+      'Looking for a commit that corroborates each completed task. This runs a search per task, so it takes a moment on a long change.',
+    );
+  }
   if (!evidence) {
     return `<section>
 <h2>Git evidence</h2>
@@ -552,7 +605,13 @@ function renderNoTrace(result: TaskEvidence): string {
 </article>`;
 }
 
-function renderClaudeEvidence(evidence: ChangeClaudeEvidence | undefined): string {
+function renderClaudeEvidence(evidence: ChangeClaudeEvidence | undefined, pending = false): string {
+  if (pending) {
+    return renderWaiting(
+      'Claude Code sessions',
+      'Reading the transcripts on this machine to find the sessions that worked on this change. Nothing is transmitted.',
+    );
+  }
   if (!evidence) {
     return `<section>
 <h2>Claude Code sessions</h2>
@@ -710,6 +769,14 @@ code, pre { font-family: var(--vscode-editor-font-family, monospace); font-size:
 pre { margin: 4px 0 0; padding: 8px 10px; overflow-x: auto; white-space: pre; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(128,128,128,0.12)); }
 .subtitle { margin: 0 0 12px; color: var(--vscode-descriptionForeground); }
 .path { word-break: break-all; }
+/* Matches the Overview's busy bar, because it means the same thing and a reader
+   should not have to learn it twice. Indeterminate because there is no total:
+   the work is however many tasks the change has. */
+.waiting { display: flex; flex-direction: column; gap: 8px; max-width: 78ch; }
+.busy { height: 2px; overflow: hidden; background: var(--vscode-panel-border, rgba(128,128,128,0.3)); }
+.busy > span { display: block; width: 34%; height: 100%; background: var(--vscode-progressBar-background, var(--vscode-focusBorder)); animation: slide 1.1s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(390%); } }
+@media (prefers-reduced-motion: reduce) { .busy > span { width: 100%; animation: none; opacity: 0.6; } }
 .archived-tag { padding: 1px 7px; border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.35)); border-radius: 9px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
 .muted, .caption, .lede, .empty { color: var(--vscode-descriptionForeground); }
 .lede, .empty { max-width: 78ch; }

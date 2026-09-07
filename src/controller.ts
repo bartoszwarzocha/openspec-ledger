@@ -107,6 +107,9 @@ export class LedgerController implements vscode.Disposable {
    */
   private readonly datedRoots = new Map<string, number>();
   private archiveDatesAbort: AbortController | undefined;
+  /** Per change: which evidence read is the current one, so a stale one is dropped. */
+  private readonly detailGeneration = new Map<string, number>();
+  private readonly detailAborts = new Map<string, AbortController>();
 
   private passTimer: NodeJS.Timeout | undefined;
   private passRunning = false;
@@ -186,6 +189,10 @@ export class LedgerController implements vscode.Disposable {
     this.disposed = true;
     this.backfillAbort?.abort();
     this.archiveDatesAbort?.abort();
+    for (const abort of this.detailAborts.values()) {
+      abort.abort();
+    }
+    this.detailAborts.clear();
     if (this.passTimer) {
       clearTimeout(this.passTimer);
     }
@@ -378,6 +385,18 @@ export class LedgerController implements vscode.Disposable {
     if (!node) {
       return;
     }
+
+    // The panel first, and not awaited. It is the thing the click was for,
+    // while everything below is navigation the reader did not ask for - a
+    // collapse and up to three reveals, each a round trip to the editor. Those
+    // used to run in front of it, so the one surface that answers the click was
+    // the last to appear rather than the first.
+    if (node.filePath) {
+      void this.showDetail(node).catch((error: unknown) => {
+        log.error(`could not open the detail panel for ${selection.changeId}`, error);
+      });
+    }
+
     try {
       // Collapse first. `reveal` only ever opens things, so without this every
       // click leaves the previous change open too and the tree grows into the
@@ -404,9 +423,6 @@ export class LedgerController implements vscode.Disposable {
       }
     } catch (error) {
       log.warn(`could not reveal ${selection.changeId} in the tree: ${String(error)}`);
-    }
-    if (node.filePath) {
-      await vscode.commands.executeCommand('openspecLedger.openChangeDetail', node);
     }
   }
 
@@ -837,6 +853,21 @@ export class LedgerController implements vscode.Disposable {
     }
   }
 
+  /**
+   * Open a change's detail panel, then fill in the evidence behind it.
+   *
+   * The order is the whole point. Both evidence layers spawn processes - the
+   * git one runs a search per completed task, the Claude one reads a transcript
+   * corpus - and this used to await both before creating the panel, so with
+   * either layer switched on a click produced several seconds of nothing at
+   * all. Nothing said the click had registered, and the reader had no way to
+   * tell a slow read from a dead one.
+   *
+   * So the panel opens first, out of what is already in memory - the change,
+   * its history, its stall - and each layer is written into it as it answers.
+   * The two are published separately rather than together, so the faster one is
+   * not held behind the slower.
+   */
   private async showDetail(node: LedgerNode): Promise<void> {
     const found = this.locate(node);
     if (!found) {
@@ -845,43 +876,95 @@ export class LedgerController implements vscode.Disposable {
     const { root, change } = found;
     const history = this.store.history(root.path, change.id);
     const today = toDateKey(new Date());
+    const key = changeKey(root.path, change.id);
 
     // Both evidence layers are read here and nowhere else, which is what keeps
     // ~100 MB of transcripts off the activation path (design.md D9).
     const gitEnabled = settings().get<boolean>('gitEvidence.enabled', false);
     const claudeEnabled = settings().get<boolean>('claudeEvidence.enabled', false);
 
-    const gitEvidence = await evaluateGitEvidence({
-      enabled: gitEnabled,
-      root,
-      change,
-      history,
-      dismissedKeys: this.store.dismissals(root.path, change.id),
-      today,
-    });
-
-    if (claudeEnabled) {
-      await this.transcripts.scan();
-    }
-    const claudeEvidence = await evaluateClaudeEvidence({
-      enabled: claudeEnabled,
-      change,
-      history,
-      index: this.transcripts,
-    });
-
-    ChangeDetailPanel.show(this.context, {
+    const base = {
       change,
       rootLabel: root.label,
       snapshots: history?.snapshots ?? [],
-      stall: this.stalls[changeKey(root.path, change.id)],
-      lastAdvanced: this.lastAdvanced[changeKey(root.path, change.id)],
-      gitEvidence,
-      claudeEvidence,
-      onDismiss: (key: string) => {
-        void this.store.dismiss(root.path, change.id, key);
+      stall: this.stalls[key],
+      lastAdvanced: this.lastAdvanced[key],
+      onDismiss: (taskKey: string) => {
+        void this.store.dismiss(root.path, change.id, taskKey);
       },
+    };
+
+    ChangeDetailPanel.show(this.context, {
+      ...base,
+      pending: { git: gitEnabled, claude: claudeEnabled },
     });
+
+    if (!gitEnabled && !claudeEnabled) {
+      // Both sections already say what they say when a layer is off, and
+      // neither call would do anything but return that same answer.
+      return;
+    }
+
+    // Per change rather than global: panels are one per change, so opening a
+    // second one must not cancel the first one's read. Superseded means the
+    // same change was opened again, which starts the reads over.
+    const generation = (this.detailGeneration.get(key) ?? 0) + 1;
+    this.detailGeneration.set(key, generation);
+    this.detailAborts.get(key)?.abort();
+    const abort = new AbortController();
+    this.detailAborts.set(key, abort);
+    const current = (): boolean =>
+      !this.disposed && !abort.signal.aborted && this.detailGeneration.get(key) === generation;
+
+    try {
+      const gitEvidence = await evaluateGitEvidence({
+        enabled: gitEnabled,
+        root,
+        change,
+        history,
+        dismissedKeys: this.store.dismissals(root.path, change.id),
+        today,
+        signal: abort.signal,
+      });
+      if (!current()) {
+        return;
+      }
+      // Published on its own: the transcript scan below can take seconds more,
+      // and holding a finished answer back to arrive with an unfinished one
+      // would be spending the reader's time to save a redraw.
+      ChangeDetailPanel.update(key, {
+        ...base,
+        gitEvidence,
+        pending: { claude: claudeEnabled },
+      });
+
+      if (claudeEnabled) {
+        await this.transcripts.scan();
+        if (!current()) {
+          return;
+        }
+      }
+      const claudeEvidence = await evaluateClaudeEvidence({
+        enabled: claudeEnabled,
+        change,
+        history,
+        index: this.transcripts,
+      });
+      if (!current()) {
+        return;
+      }
+      ChangeDetailPanel.update(key, { ...base, gitEvidence, claudeEvidence });
+    } catch (error) {
+      // A failed read must not leave the panel saying it is still reading.
+      log.error(`evidence for ${change.id} could not be gathered`, error);
+      if (current()) {
+        ChangeDetailPanel.update(key, { ...base });
+      }
+    } finally {
+      if (this.detailAborts.get(key) === abort) {
+        this.detailAborts.delete(key);
+      }
+    }
   }
 
   private taskAt(node: LedgerNode): { root: OpenSpecRoot; change: Change; task: Task } | undefined {
