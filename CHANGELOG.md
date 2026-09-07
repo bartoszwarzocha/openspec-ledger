@@ -7,31 +7,6 @@ All notable changes to OpenSpec Ledger are recorded here. The format follows
 The version numbers follow the phasing set out in the change proposal: each release ends in
 something demonstrable rather than in a half-finished layer.
 
-## [0.2.1] - 2026-09-07
-
-### Fixed
-
-- **Clicking a change opened nothing for several seconds.** With `gitEvidence.enabled` on, a
-  click produced four to five seconds of no feedback at all before the detail panel appeared —
-  long enough that there was no way to tell a slow read from a click that had not registered.
-
-  Two ordering mistakes, not a performance problem. The panel was created *after* both evidence
-  layers had been awaited — the git layer runs a search per completed task, the Claude layer
-  reads a transcript corpus — so the one surface that answers the click was the last thing to
-  appear. And a click in the Overview ran a tree collapse and up to three reveals *before* even
-  that.
-
-  Now the panel opens immediately from what is already in memory — the change, its history, its
-  stall — and each evidence layer is written into it as it answers. The two publish separately,
-  so the faster one is not held behind the slower. Until a layer answers, its section carries a
-  progress bar and a sentence saying what is being read, which is the difference between waiting
-  and wondering. The tree navigation now runs behind the panel rather than in front of it.
-
-  A late answer never reopens a panel the reader has closed and never steals focus back from
-  wherever they moved on to. Opening the same change again supersedes and cancels the read in
-  flight; opening a *different* change does not, because panels are one per change and the first
-  one's answer is still wanted.
-
 ## [0.2.0] - 2026-09-07
 
 ### Added
@@ -102,6 +77,29 @@ something demonstrable rather than in a half-finished layer.
   like the extension losing the answer and finding it again. A watcher-driven pass — an agent
   writing `tasks.md` — still draws nothing at all: a progress bar that flickers all afternoon is one
   the reader learns to stop seeing.
+
+### Fixed
+
+- **Clicking a change opened nothing for several seconds.** With `gitEvidence.enabled` on, a
+  click produced four to five seconds of no feedback at all before the detail panel appeared —
+  long enough that there was no way to tell a slow read from a click that had not registered.
+
+  Two ordering mistakes, not a performance problem. The panel was created *after* both evidence
+  layers had been awaited — the git layer runs a search per completed task, the Claude layer
+  reads a transcript corpus — so the one surface that answers the click was the last thing to
+  appear. And a click in the Overview ran a tree collapse and up to three reveals *before* even
+  that.
+
+  Now the panel opens immediately from what is already in memory — the change, its history, its
+  stall — and each evidence layer is written into it as it answers. The two publish separately,
+  so the faster one is not held behind the slower. Until a layer answers, its section carries a
+  progress bar and a sentence saying what is being read, which is the difference between waiting
+  and wondering. The tree navigation now runs behind the panel rather than in front of it.
+
+  A late answer never reopens a panel the reader has closed and never steals focus back from
+  wherever they moved on to. Opening the same change again supersedes and cancels the read in
+  flight; opening a *different* change does not, because panels are one per change and the first
+  one's answer is still wanted.
 
 ## [0.1.1] - 2026-09-04
 
