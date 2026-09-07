@@ -65,4 +65,4 @@
 - [x] 5.1 README section on Current and Archive, and the command table entry
 - [x] 5.2 CHANGELOG entry for 0.2.0 stating why it is a scope rather than a filter
 - [x] 5.3 Bump the version to 0.2.0
-- [ ] 5.4 Package the VSIX and install it locally
+- [x] 5.4 Package the VSIX and install it locally (`openspec-ledger-0.2.0.vsix`, 308.09 KB)
