@@ -226,12 +226,6 @@ title of the tree. In the archive:
 
 ---
 
-## Screenshots
-
-*Coming in the next release.*
-
----
-
 ## Install
 
 **From the Marketplace.** Open the Extensions view, search for *OpenSpec Ledger*, and install
