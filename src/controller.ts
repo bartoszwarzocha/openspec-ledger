@@ -17,17 +17,19 @@ import { createWorkspaceSearcher } from './discovery/vscodeSearch.ts';
 import { evaluateClaudeEvidence } from './evidence/claude.ts';
 import { evaluateGitEvidence } from './evidence/git.ts';
 import { TranscriptIndex } from './evidence/transcripts.ts';
+import { readArchiveDates } from './history/archived.ts';
 import { backfillRoot } from './history/backfill.ts';
 import { lastAdvanced as deriveLastAdvanced, stallOf } from './history/derive.ts';
 import { HistoryStore } from './history/store.ts';
 import { ModelBuilder } from './model/build.ts';
-import { changeKey, makeProgress, sumProgress, toDateKey } from './model/keys.ts';
+import { changeKey, makeProgress, pathKey, sumProgress, toDateKey } from './model/keys.ts';
 import { addExclusion, applyExclusions, removeExclusion } from './model/exclude.ts';
 import { DEFAULT_STALE_AFTER_DAYS, statusOf } from './model/status.ts';
 import type {
   Change,
   LedgerModel,
   LedgerNode,
+  LedgerScope,
   OpenSpecRoot,
   Progress,
   FilterMode,
@@ -37,7 +39,7 @@ import type {
   TaskState,
   TreeOptions,
 } from './model/types.ts';
-import { FILTER_MODES, SORT_MODES } from './model/types.ts';
+import { FILTER_MODES, LEDGER_SCOPES, SORT_MODES } from './model/types.ts';
 import { buildMovementReport, renderMovementReport } from './report/movement.ts';
 import { countReadyToArchive, filterLabel } from './view/nodes.ts';
 import { buildOverview } from './view/overview.ts';
@@ -54,8 +56,19 @@ import { log } from './util/log.ts';
 
 const SORT_MODE_KEY = 'openspecLedger.sortMode';
 const FILTER_KEY = 'openspecLedger.filter';
+/**
+ * The archive keeps its own filter.
+ *
+ * The two scopes are read for different reasons - one to find what to work on,
+ * one to look something up - so a filter chosen in one is rarely the filter
+ * wanted in the other, and carrying it across would have the reader step into
+ * the archive and find it apparently empty because "Stale" came with them.
+ */
+const ARCHIVE_FILTER_KEY = 'openspecLedger.filter.archive';
+const SCOPE_KEY = 'openspecLedger.scope';
 /** Context key the view-title menus compare against. */
 const FILTER_CONTEXT = 'openspecLedger.filtered';
+const SCOPE_CONTEXT = 'openspecLedger.scope';
 const PASS_DEBOUNCE_MS = 300;
 
 const SORT_LABELS: Record<SortMode, { label: string; detail: string }> = {
@@ -82,6 +95,18 @@ export class LedgerController implements vscode.Disposable {
   private model: LedgerModel | undefined;
   private stalls: Record<string, Stall | undefined> = {};
   private lastAdvanced: Record<string, string | undefined> = {};
+  /** `changeKey` -> archive date, filled in behind the archive once git answers. */
+  private archivedAt: Record<string, string | undefined> = {};
+  /**
+   * Roots already dated -> how many archived changes they held when asked.
+   *
+   * The count is the invalidation rule: `git log` is not re-run for a root that
+   * has not gained or lost an archived change, so switching scopes back and
+   * forth costs nothing, while archiving something new is picked up. A change
+   * git could not date stays undated rather than being asked about for ever.
+   */
+  private readonly datedRoots = new Map<string, number>();
+  private archiveDatesAbort: AbortController | undefined;
 
   private passTimer: NodeJS.Timeout | undefined;
   private passRunning = false;
@@ -116,6 +141,9 @@ export class LedgerController implements vscode.Disposable {
       this.overview.onDidSelect((selection) => void this.revealFromOverview(selection)),
       // Clicking a count in the header is a request to see those ones.
       this.overview.onDidFilter((filter) => void this.setFilter(filter)),
+      // Current or Archive: unlike a filter, this changes which directories
+      // have to be read, so it goes through a full pass rather than a redraw.
+      this.overview.onDidChangeScope((scope) => void this.setScope(scope)),
       // Archiving from the row itself: filtering to the finished changes and
       // then sending the reader to the tree to act on them would waste the
       // filter entirely.
@@ -131,6 +159,7 @@ export class LedgerController implements vscode.Disposable {
 
     void this.setState(hasSomethingToSearch() ? 'loading' : 'noWorkspace');
     void vscode.commands.executeCommand('setContext', FILTER_CONTEXT, this.filter !== 'all');
+    void vscode.commands.executeCommand('setContext', SCOPE_CONTEXT, this.scope);
 
     // Render before anything is read. The spec asks for a loading state inside
     // 300 ms, and `start()` does not run until activation has returned, so
@@ -147,13 +176,16 @@ export class LedgerController implements vscode.Disposable {
 
   /** Called after `activate` has returned, so discovery never delays the view. */
   async start(): Promise<void> {
-    await this.refresh({ rediscover: true });
+    // The first pass is the longest one - discovery walks the workspace - and
+    // it is the one where an empty view is least self-explanatory.
+    await this.runVisibly(this.refresh({ rediscover: true }));
     this.scheduleBackfill();
   }
 
   dispose(): void {
     this.disposed = true;
     this.backfillAbort?.abort();
+    this.archiveDatesAbort?.abort();
     if (this.passTimer) {
       clearTimeout(this.passTimer);
     }
@@ -203,7 +235,11 @@ export class LedgerController implements vscode.Disposable {
         return;
       }
 
-      const built = await this.builder.build(this.roots);
+      // The archive is read only while the reader is in it, so the ordinary
+      // pass costs exactly what it did before this feature existed.
+      const built = await this.builder.build(this.roots, undefined, {
+        includeArchived: this.scope === 'archive',
+      });
       // Hidden roots and changes are dropped once, here, so every count, badge
       // and ranking downstream is computed over the same set (model/exclude.ts).
       const model = applyExclusions(built, this.excluded);
@@ -214,6 +250,11 @@ export class LedgerController implements vscode.Disposable {
       await this.recordObservations(model);
       this.recomputeDerived(model);
       this.publish();
+
+      // After the list is on screen, never before it: dating the archive is a
+      // `git log` per root, and the reader asked to see the archive, not to
+      // wait for git.
+      this.scheduleArchiveDates(model);
 
       // A change created while the window is open has no reconstructed history
       // until something replays its commits. `backfillRoot` skips whatever it
@@ -303,10 +344,22 @@ export class LedgerController implements vscode.Disposable {
             rows: [],
             totals: { status: 'active', complete: 0, stale: 0, active: 0, undecomposed: 0 },
             filter: options.filter,
+            scope: options.scope,
             loading: options.loading,
           },
     );
-    this.view.description = options.filter === 'all' ? undefined : filterLabel(options.filter);
+    // A fresh publish is by definition the answer, so whatever was said while
+    // waiting for it stops being true here. A message that outlives its pass is
+    // a lie the reader has no way to check.
+    this.view.message = undefined;
+    // Both facts or neither: a title reading only "Finished" would leave the
+    // reader guessing whether they are looking at the archive or at work in
+    // flight, and that is the more important of the two.
+    const title = [
+      options.scope === 'archive' ? 'Archive' : undefined,
+      options.filter === 'all' ? undefined : filterLabel(options.filter, options.scope),
+    ].filter((part): part is string => part !== undefined);
+    this.view.description = title.length > 0 ? title.join(' · ') : undefined;
     if (this.model) {
       this.updateBadge(this.model);
     } else {
@@ -395,8 +448,17 @@ export class LedgerController implements vscode.Disposable {
 
   /** A value stored by an older build may be a boolean, so it is validated, not trusted. */
   private get filter(): FilterMode {
-    const stored = this.context.workspaceState.get<FilterMode>(FILTER_KEY);
+    const stored = this.context.workspaceState.get<FilterMode>(this.filterKey);
     return stored && FILTER_MODES.includes(stored) ? stored : 'all';
+  }
+
+  private get filterKey(): string {
+    return this.scope === 'archive' ? ARCHIVE_FILTER_KEY : FILTER_KEY;
+  }
+
+  private get scope(): LedgerScope {
+    const stored = this.context.workspaceState.get<LedgerScope>(SCOPE_KEY);
+    return stored && LEDGER_SCOPES.includes(stored) ? stored : 'current';
   }
 
   private get staleAfterDays(): number {
@@ -412,9 +474,11 @@ export class LedgerController implements vscode.Disposable {
     return {
       sortMode: this.sortMode,
       filter: this.filter,
+      scope: this.scope,
       staleAfterDays: this.staleAfterDays,
       stalls: this.stalls,
       lastAdvanced: this.lastAdvanced,
+      archivedAt: this.archivedAt,
       // Until the first discovery has answered, an empty tree means "not yet",
       // not "nothing here", and must not be dressed as the no-roots empty state.
       loading: !this.discovered,
@@ -462,6 +526,55 @@ export class LedgerController implements vscode.Disposable {
         }
       })
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Background archive dates
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fill in when each archived change reached the archive, and republish.
+   *
+   * Roots are asked one at a time and each one publishes nothing of its own:
+   * the dates appear together, so a reader is not watching a column populate
+   * row by row.
+   */
+  private scheduleArchiveDates(model: LedgerModel): void {
+    if (this.disposed) {
+      return;
+    }
+    const pending = model.roots.filter((rootModel) => {
+      const count = (rootModel.archived ?? []).length;
+      return count > 0 && this.datedRoots.get(pathKey(rootModel.root.path)) !== count;
+    });
+    if (pending.length === 0) {
+      return;
+    }
+
+    this.archiveDatesAbort?.abort();
+    const abort = new AbortController();
+    this.archiveDatesAbort = abort;
+
+    void (async () => {
+      let learned = false;
+      for (const rootModel of pending) {
+        if (abort.signal.aborted || this.disposed) {
+          return;
+        }
+        const dates = await readArchiveDates({ root: rootModel.root, signal: abort.signal });
+        if (abort.signal.aborted || this.disposed) {
+          return;
+        }
+        this.datedRoots.set(pathKey(rootModel.root.path), (rootModel.archived ?? []).length);
+        for (const [changeId, date] of Object.entries(dates)) {
+          this.archivedAt[changeKey(rootModel.root.path, changeId)] = date;
+          learned = true;
+        }
+      }
+      if (learned && this.model && !this.disposed) {
+        this.publish();
+      }
+    })();
   }
 
   // -------------------------------------------------------------------------
@@ -515,10 +628,12 @@ export class LedgerController implements vscode.Disposable {
       );
     };
 
-    register('openspecLedger.refresh', () => this.refresh({ rediscover: true }));
+    register('openspecLedger.refresh', () => this.runVisibly(this.refresh({ rediscover: true })));
     register('openspecLedger.setSortMode', () => this.pickSortMode());
     register('openspecLedger.setFilter', () => this.pickFilter());
     register('openspecLedger.clearFilter', () => this.setFilter('all'));
+    register('openspecLedger.showArchive', () => this.setScope('archive'));
+    register('openspecLedger.showCurrent', () => this.setScope('current'));
     register('openspecLedger.archiveChange', (node: LedgerNode) => this.archive(node));
     register('openspecLedger.archiveCompleted', () => this.archiveCompleted());
     register('openspecLedger.hideItem', (node: LedgerNode) => this.hide(node));
@@ -557,21 +672,83 @@ export class LedgerController implements vscode.Disposable {
   }
 
   private async setFilter(filter: FilterMode): Promise<void> {
-    await this.context.workspaceState.update(FILTER_KEY, filter);
+    await this.context.workspaceState.update(this.filterKey, filter);
     await vscode.commands.executeCommand('setContext', FILTER_CONTEXT, filter !== 'all');
     this.tree.setOptions({ filter });
     this.publish();
   }
 
+  /**
+   * Switch between the work in flight and the archive.
+   *
+   * A full pass rather than a redraw: `openspec/changes/archive/` has not been
+   * read yet the first time somebody asks for it, and publishing before the
+   * rebuild would show them an empty archive and then fill it in, which reads
+   * as the extension having lost the answer and found it again.
+   */
+  private async setScope(scope: LedgerScope): Promise<void> {
+    if (scope === this.scope) {
+      return;
+    }
+    await this.context.workspaceState.update(SCOPE_KEY, scope);
+    await vscode.commands.executeCommand('setContext', SCOPE_CONTEXT, scope);
+    // The filter is per scope, so the context key the title menus read has to
+    // follow the scope's own stored value rather than the one just left behind.
+    await vscode.commands.executeCommand('setContext', FILTER_CONTEXT, this.filter !== 'all');
+
+    // Nothing is rebuilt here, and that is the point. Handing either surface the
+    // new scope over a model that has not read it yet made the archive flash
+    // "Nothing has been archived yet" and then fill in - the extension looking
+    // as though it had lost the answer and found it again. So both keep the
+    // rows they have and say they are working; the scope reaches them through
+    // `publish`, once there is something to publish.
+    this.overview.setBusy(true);
+    this.view.message = scope === 'archive' ? 'Reading the archive...' : 'Refreshing...';
+    try {
+      await this.runVisibly(this.refresh());
+    } finally {
+      // `publish` clears both on the way through. This is for the path where a
+      // pass fails or is coalesced away, so the view never sits saying it is
+      // reading something when nothing is running.
+      this.overview.setBusy(false);
+      this.view.message = undefined;
+    }
+  }
+
+  /**
+   * Put the editor's own progress bar on both views for the length of a pass.
+   *
+   * Only for a pass the reader set off. A watcher firing on every `tasks.md` an
+   * agent writes would otherwise flicker a progress bar all afternoon, which
+   * teaches the reader to stop seeing it - and this exists precisely so that
+   * the one they are waiting for is visible.
+   */
+  private async runVisibly(work: Promise<void>): Promise<void> {
+    // Neither view is guaranteed to be the one being looked at, and a bar on a
+    // hidden view costs nothing.
+    const quiet = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    for (const viewId of ['openspecLedger.ledger', OverviewViewProvider.viewType]) {
+      void vscode.window.withProgress({ location: { viewId } }, () => quiet);
+    }
+    await work;
+  }
+
   private async pickFilter(): Promise<void> {
     const current = this.filter;
+    const scope = this.scope;
     const picked = await vscode.window.showQuickPick(
       FILTER_MODES.map((mode) => ({
-        label: filterLabel(mode),
+        label: filterLabel(mode, scope),
         description: mode === current ? 'current' : undefined,
         mode,
       })),
-      { title: 'Show which changes', placeHolder: filterLabel(current) }
+      {
+        title: scope === 'archive' ? 'Show which archived changes' : 'Show which changes',
+        placeHolder: filterLabel(current, scope),
+      }
     );
     if (picked) {
       await this.setFilter(picked.mode);
@@ -607,6 +784,14 @@ export class LedgerController implements vscode.Disposable {
   // Node-scoped commands
   // -------------------------------------------------------------------------
 
+  /**
+   * The change a node stands for, looked up in both lists.
+   *
+   * The archive is searched second rather than only in the archive scope: a
+   * detail panel opened from the archive stays open when the reader switches
+   * back, and a lookup that answered only for the current scope would leave its
+   * buttons doing nothing.
+   */
   private locate(node: LedgerNode | undefined): { root: OpenSpecRoot; change: Change } | undefined {
     if (!node?.rootPath || !node.changeId || !this.model) {
       return undefined;
@@ -615,7 +800,9 @@ export class LedgerController implements vscode.Disposable {
       if (root.root.path !== node.rootPath) {
         continue;
       }
-      const change = root.changes.find((candidate) => candidate.id === node.changeId);
+      const change =
+        root.changes.find((candidate) => candidate.id === node.changeId) ??
+        root.archived?.find((candidate) => candidate.id === node.changeId);
       if (change) {
         return { root: root.root, change };
       }

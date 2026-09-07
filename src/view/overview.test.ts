@@ -487,3 +487,125 @@ test('a root with no changes contributes nothing', () => {
 
   assert.deepEqual(ids(model, makeOptions()), ['only-one']);
 });
+
+// ---------------------------------------------------------------------------
+// The archive scope
+// ---------------------------------------------------------------------------
+
+/** The same changes, moved: one finished, one shelved with work left, one bare. */
+function archivedModel(): LedgerModel {
+  const archived: Change[] = [
+    { ...changeWithTasks('add-cache', ROOT_A, 3, 3), archived: true },
+    { ...changeWithTasks('half-done', ROOT_A, 1, 4), archived: true },
+    { ...makeChange('sketch-api', ROOT_A), archived: true },
+  ];
+  return makeModel([
+    { ...makeRootModel('alpha', ROOT_A, [changeWithTasks('in-flight', ROOT_A, 1, 2)]), archived },
+  ]);
+}
+
+test('the archive scope lists the archive and nothing else', () => {
+  assert.deepEqual(ids(archivedModel(), makeOptions({ scope: 'archive' })), [
+    'add-cache',
+    'half-done',
+    'sketch-api',
+  ]);
+});
+
+test('the current scope is untouched by an archive sitting beside it', () => {
+  assert.deepEqual(ids(archivedModel(), makeOptions()), ['in-flight']);
+  assert.deepEqual(ids(archivedModel(), makeOptions({ scope: 'current' })), ['in-flight']);
+});
+
+test('an archived change is captioned by what it was, not by what it waits for', () => {
+  const rows = buildOverview(archivedModel(), makeOptions({ scope: 'archive' })).rows;
+  assert.deepEqual(
+    rows.map((row) => [row.changeId, row.note]),
+    [
+      ['add-cache', 'archived'],
+      ['half-done', 'archived, 3 tasks open'],
+      ['sketch-api', 'archived, not decomposed'],
+    ],
+  );
+});
+
+test('one open task is one task, not 1 tasks', () => {
+  assert.equal(noteFor('active', makeProgress(3, 4), undefined, undefined, true), 'archived, 1 task open');
+});
+
+test('the archive date joins the caption when git could supply one', () => {
+  assert.equal(
+    noteFor('complete', makeProgress(5, 5), undefined, undefined, true, '2026-03-03'),
+    'archived 2026-03-03',
+  );
+  assert.equal(
+    noteFor('active', makeProgress(2, 5), undefined, undefined, true, '2026-05-11'),
+    'archived 2026-05-11, 3 tasks open',
+  );
+  assert.equal(
+    noteFor('undecomposed', undefined, undefined, undefined, true, '2026-04-15'),
+    'archived 2026-04-15, not decomposed',
+  );
+});
+
+test('an undated archived change says archived and stops there', () => {
+  // No mtime, no guess from the id: a date that might be wrong reads exactly
+  // like one that is right.
+  assert.equal(noteFor('complete', makeProgress(5, 5), undefined, undefined, true), 'archived');
+});
+
+test('the date reaches the row through the options, keyed like every other figure', () => {
+  const archivedAt = { [changeKey(ROOT_A, 'add-cache')]: '2026-03-03' };
+  const rows = buildOverview(archivedModel(), makeOptions({ scope: 'archive', archivedAt })).rows;
+  assert.equal(rows.find((row) => row.changeId === 'add-cache')?.note, 'archived 2026-03-03');
+  // The one with no entry is undated rather than showing somebody else's date.
+  assert.equal(rows.find((row) => row.changeId === 'half-done')?.note, 'archived, 3 tasks open');
+});
+
+test('an archive date is ignored for a change that is not archived', () => {
+  const archivedAt = { [changeKey(ROOT_A, 'in-flight')]: '2026-03-03' };
+  const rows = buildOverview(archivedModel(), makeOptions({ archivedAt })).rows;
+  assert.equal(rows[0]?.changeId, 'in-flight');
+  assert.ok(!rows[0]?.note.includes('2026-03-03'));
+});
+
+test('an archived change never carries a stall caption', () => {
+  // The stall map cannot reach it - `statusOf` refuses staleness for anything
+  // archived - so a caption built from one would be unreachable anyway.
+  const stalls = { [changeKey(ROOT_A, 'half-done')]: stall(400) };
+  const rows = buildOverview(
+    archivedModel(),
+    makeOptions({ scope: 'archive', stalls, staleAfterDays: 30 }),
+  ).rows;
+  const row = rows.find((candidate) => candidate.changeId === 'half-done');
+  assert.equal(row?.status, 'active');
+  assert.equal(row?.note, 'archived, 3 tasks open');
+});
+
+test('the overview says which scope it was built from', () => {
+  assert.equal(buildOverview(archivedModel(), makeOptions()).scope, 'current');
+  assert.equal(buildOverview(archivedModel(), makeOptions({ scope: 'archive' })).scope, 'archive');
+});
+
+test('a root that has archived nothing contributes no archive rows', () => {
+  const model = makeModel([makeRootModel('alpha', ROOT_A, [changeWithTasks('one', ROOT_A, 1, 2)])]);
+  const overview = buildOverview(model, makeOptions({ scope: 'archive' }));
+  assert.deepEqual(overview.rows, []);
+  assert.deepEqual(overview.totals, {
+    status: 'active',
+    complete: 0,
+    stale: 0,
+    active: 0,
+    undecomposed: 0,
+  });
+});
+
+test('filters narrow the archive without reaching outside it', () => {
+  assert.deepEqual(
+    ids(archivedModel(), makeOptions({ scope: 'archive', filter: 'ready-to-archive' })),
+    ['add-cache'],
+  );
+  assert.deepEqual(ids(archivedModel(), makeOptions({ scope: 'archive', filter: 'unfinished' })), [
+    'half-done',
+  ]);
+});

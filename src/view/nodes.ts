@@ -15,6 +15,7 @@ import type {
   FilterMode,
   LedgerModel,
   LedgerNode,
+  LedgerScope,
   NodeKind,
   OpenSpecRoot,
   RootModel,
@@ -31,6 +32,23 @@ import { rootStatusOf, statusOf } from '../model/status.ts';
 
 /** design.md D5: an absent task list is a state of its own, never 0 percent. */
 const NOT_DECOMPOSED = 'not decomposed';
+
+/** An absent scope is `current`, so every caller that predates the archive is unchanged. */
+export function scopeOf(options: Pick<TreeOptions, 'scope'>): LedgerScope {
+  return options.scope ?? 'current';
+}
+
+/**
+ * The list one scope reads.
+ *
+ * The single place that knows which array a scope means, so no surface can
+ * accidentally count the archive into a current-scope figure or the other way
+ * round. An archive that was never built reads as empty rather than as an
+ * error: the views ask for it only in the scope that has just built it.
+ */
+export function changesIn(rootModel: RootModel, scope: LedgerScope): readonly Change[] {
+  return scope === 'archive' ? (rootModel.archived ?? []) : rootModel.changes;
+}
 
 interface Icon {
   iconId: string;
@@ -82,6 +100,20 @@ const CHANGE_CONTEXT: Record<ChangeStatus, string> = {
   active: 'change',
 };
 
+/**
+ * An archived change is a fifth kind to the menus even though it is not a fifth
+ * status.
+ *
+ * `change-complete` is what package.json binds Archive to, and an archived
+ * change at 100 percent matches it exactly - so without a context value of its
+ * own the reader would be offered the chance to archive something that is
+ * already in the archive. It still starts with `change`, so the open and reveal
+ * menus, which match on that prefix, go on working.
+ */
+function changeContext(change: Change, status: ChangeStatus): string {
+  return change.archived ? 'change-archived' : CHANGE_CONTEXT[status];
+}
+
 // ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
@@ -132,14 +164,17 @@ function uniqueId(base: string, seen: Set<string>): string {
 // ---------------------------------------------------------------------------
 
 /** `61/63  97%`, or `not decomposed` when the change has no task list. */
-export function changeDescription(change: Change): string {
+export function changeDescription(change: Change, archivedAt?: string): string {
   // `taskFile` is absent exactly when `tasks.md` does not exist, so the guard and
   // the flag state the same fact two ways.
-  if (change.undecomposed || !change.taskFile) {
-    return NOT_DECOMPOSED;
-  }
-  const { completed, total, percent } = change.taskFile.progress;
-  return `${completed}/${total}  ${percent}%`;
+  const figures =
+    change.undecomposed || !change.taskFile
+      ? NOT_DECOMPOSED
+      : `${change.taskFile.progress.completed}/${change.taskFile.progress.total}  ${change.taskFile.progress.percent}%`;
+  // The date rides on the badge rather than replacing the figures: in the
+  // archive both matter, and how big the change was is what the reader is
+  // scanning for once they have found the year.
+  return archivedAt ? `${figures}  ${archivedAt}` : figures;
 }
 
 function documentList(change: Change): string[] {
@@ -168,6 +203,7 @@ export function changeTooltip(
   change: Change,
   stall: Stall | undefined,
   lastAdvanced: string | undefined,
+  archivedAt?: string,
 ): string {
   const blocks: string[] = [`\`${change.id}\``];
 
@@ -183,6 +219,13 @@ export function changeTooltip(
   }
 
   const facts: string[] = [];
+  if (change.archived) {
+    facts.push(
+      archivedAt === undefined
+        ? 'Archived: this change lives under `openspec/changes/archive/`.'
+        : `Archived ${archivedAt}, from the commit that moved it into \`openspec/changes/archive/\`.`,
+    );
+  }
   if (change.created) {
     const inferred = change.createdInferred ? ' (inferred from file dates)' : '';
     facts.push(`Created ${toDateKey(change.created)}${inferred}`);
@@ -321,10 +364,14 @@ function statusFor(change: Change, options: StatusOptions): ChangeStatus {
   return statusOf(change, stall, options.staleAfterDays);
 }
 
-function countStatuses(model: LedgerModel, options: StatusOptions): RootStatus {
+function countStatuses(
+  model: LedgerModel,
+  options: StatusOptions,
+  scope: LedgerScope = 'current',
+): RootStatus {
   const statuses: ChangeStatus[] = [];
   for (const rootModel of model.roots) {
-    for (const change of rootModel.changes) {
+    for (const change of changesIn(rootModel, scope)) {
       statuses.push(statusFor(change, options));
     }
   }
@@ -333,10 +380,17 @@ function countStatuses(model: LedgerModel, options: StatusOptions): RootStatus {
 
 /** Every status across every root, for the view title and the overview header. */
 export function countByStatus(model: LedgerModel, options: TreeOptions): RootStatus {
-  return countStatuses(model, options);
+  return countStatuses(model, options, scopeOf(options));
 }
 
-/** How many changes across every root are at 100 percent - the view title badge. */
+/**
+ * How many changes across every root are at 100 percent - the view title badge.
+ *
+ * Always the current scope, whichever one the reader is looking at. The badge
+ * is a standing reminder that there is a decision waiting, and a reader who
+ * stepped into the archive has not made it - watching the number fall to zero
+ * because they changed view would be a lie about their own repository.
+ */
 export function countReadyToArchive(model: LedgerModel): number {
   // Completion outranks staleness in `statusOf`, so no stall figure can move a
   // change in or out of this count and the caller need not supply one.
@@ -376,8 +430,38 @@ const NOTHING_MATCHED: Record<FilterMode, string> = {
   unfinished: 'No change here is unfinished.',
 };
 
-export function filterLabel(filter: FilterMode): string {
-  return FILTER_LABELS[filter];
+/**
+ * The three names that do not survive the move into the archive.
+ *
+ * "Ready to archive" describes a decision waiting to be taken, and in the
+ * archive it has been; "In progress" and "Unfinished" describe work that has
+ * stopped, which is a different sentence from work that is going on. The rest
+ * of the vocabulary carries over unchanged, so only the entries that would
+ * mislead are restated.
+ */
+const ARCHIVE_FILTER_LABELS: Partial<Record<FilterMode, string>> = {
+  'ready-to-archive': 'Finished',
+  active: 'Left unfinished',
+  unfinished: 'Left unfinished',
+};
+
+const ARCHIVE_FILTER_NOUNS: Partial<Record<FilterMode, string>> = {
+  'ready-to-archive': 'finished',
+  active: 'left unfinished',
+  unfinished: 'left unfinished',
+};
+
+const ARCHIVE_NOTHING_MATCHED: Partial<Record<FilterMode, string>> = {
+  all: 'Nothing has been archived here yet.',
+  'ready-to-archive': 'No archived change here was finished.',
+  stale: 'An archived change is never stale, so this filter never matches one.',
+  active: 'Every archived change here was finished.',
+  unfinished: 'Every archived change here was finished.',
+  undecomposed: 'No archived change here is undecomposed.',
+};
+
+export function filterLabel(filter: FilterMode, scope: LedgerScope = 'current'): string {
+  return (scope === 'archive' ? ARCHIVE_FILTER_LABELS[filter] : undefined) ?? FILTER_LABELS[filter];
 }
 
 /**
@@ -565,14 +649,20 @@ function changeNode(change: Change, context: BuildContext): LedgerNode {
       : sections;
 
   const key = changeKey(change.rootPath, change.id);
+  const archivedAt = change.archived ? context.options.archivedAt?.[key] : undefined;
   return {
     kind: 'change',
     id: uniqueId(nodeIdFor('change', change.rootPath, change.id), context.ids),
     label: change.id,
-    description: changeDescription(change),
-    tooltip: changeTooltip(change, context.options.stalls[key], context.options.lastAdvanced[key]),
+    description: changeDescription(change, archivedAt),
+    tooltip: changeTooltip(
+      change,
+      context.options.stalls[key],
+      context.options.lastAdvanced[key],
+      archivedAt,
+    ),
     ...STATUS_ICONS[status],
-    contextValue: CHANGE_CONTEXT[status],
+    contextValue: changeContext(change, status),
     collapsible: children.length > 0 ? 'collapsed' : 'none',
     children,
     rootPath: change.rootPath,
@@ -596,10 +686,29 @@ function rootDescription(
   options: TreeOptions,
   visible: number,
 ): string {
+  const scope = scopeOf(options);
+  const total = changesIn(rootModel, scope).length;
+
   if (options.filter !== 'all') {
-    return `${visible} of ${rootModel.changes.length} ${FILTER_NOUNS[options.filter]}`;
+    const noun =
+      (scope === 'archive' ? ARCHIVE_FILTER_NOUNS[options.filter] : undefined) ??
+      FILTER_NOUNS[options.filter];
+    return `${visible} of ${total} ${noun}`;
   }
-  const parts = [plural(rootModel.changes.length, 'change')];
+
+  // In the archive the percentage would be noise - almost everything there is
+  // at 100 - and "done" is the normal case rather than news. What is worth
+  // saying is the exception: a change that was put away with work still in it.
+  if (scope === 'archive') {
+    const parts = [`${plural(total, 'change')} archived`];
+    const unfinished = counts.active + counts.stale;
+    if (unfinished > 0) {
+      parts.push(`${unfinished} left unfinished`);
+    }
+    return parts.join(' · ');
+  }
+
+  const parts = [plural(total, 'change')];
   if (counts.complete > 0) {
     parts.push(`${counts.complete} done`);
   }
@@ -614,7 +723,9 @@ function rootDescription(
 
 /** The change level of one root, including the message that stands in for an empty list. */
 function changeNodes(rootModel: RootModel, context: BuildContext): LedgerNode[] {
-  const visible = filterChanges(rootModel.changes, context.options);
+  const scope = scopeOf(context.options);
+  const all = changesIn(rootModel, scope);
+  const visible = filterChanges(all, context.options);
   const sorted = sortChanges(visible, {
     sortMode: context.options.sortMode,
     stalls: context.options.stalls,
@@ -622,17 +733,28 @@ function changeNodes(rootModel: RootModel, context: BuildContext): LedgerNode[] 
   });
 
   if (sorted.length === 0) {
+    if (all.length === 0) {
+      return [
+        messageNode(
+          nodeIdFor('message', rootModel.root.path, undefined, 'no-changes'),
+          scope === 'archive'
+            ? 'Nothing has been archived in this root yet.'
+            : 'This root holds no active changes.',
+          scope === 'archive'
+            ? 'A change moves here when `openspec archive` folds its spec deltas into `openspec/specs/`.'
+            : undefined,
+        ),
+      ];
+    }
+    const text =
+      (scope === 'archive' ? ARCHIVE_NOTHING_MATCHED[context.options.filter] : undefined) ??
+      NOTHING_MATCHED[context.options.filter];
     return [
-      rootModel.changes.length === 0
-        ? messageNode(
-            nodeIdFor('message', rootModel.root.path, undefined, 'no-changes'),
-            'This root holds no active changes.',
-          )
-        : messageNode(
-            nodeIdFor('message', rootModel.root.path, undefined, 'none-matched'),
-            NOTHING_MATCHED[context.options.filter],
-            `Switch the filter to ${FILTER_LABELS.all} to see the other changes in this root.`,
-          ),
+      messageNode(
+        nodeIdFor('message', rootModel.root.path, undefined, 'none-matched'),
+        text,
+        `Switch the filter to ${filterLabel('all', scope)} to see the other changes in this root.`,
+      ),
     ];
   }
   return sorted.map((change) => changeNode(change, context));
@@ -644,7 +766,9 @@ function rootNode(rootModel: RootModel, context: BuildContext): LedgerNode {
   // Over every change in the root, not the visible ones: a filter is a lens on
   // the list, and it does not change what is actually sitting under the root.
   const counts = rootStatusOf(
-    rootModel.changes.map((change) => statusFor(change, context.options)),
+    changesIn(rootModel, scopeOf(context.options)).map((change) =>
+      statusFor(change, context.options),
+    ),
   );
   return {
     kind: 'root',
@@ -683,6 +807,22 @@ export function buildTree(model: LedgerModel, options: TreeOptions): LedgerNode[
           ),
         ]
       : [];
+  }
+
+  // In the archive an empty tree is an answer rather than the no-roots welcome
+  // content, so the message says which of the two the reader is looking at.
+  if (
+    scopeOf(options) === 'archive' &&
+    options.loading !== true &&
+    model.roots.every((rootModel) => (rootModel.archived ?? []).length === 0)
+  ) {
+    return [
+      messageNode(
+        nodeIdFor('message', '', undefined, 'no-archive'),
+        'Nothing has been archived yet.',
+        'A change moves into `openspec/changes/archive/` when `openspec archive` folds its spec deltas into `openspec/specs/`.',
+      ),
+    ];
   }
 
   const only = model.roots.length === 1 ? model.roots[0] : undefined;

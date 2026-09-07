@@ -81,3 +81,37 @@ test('removing takes the entry back off the list', () => {
     'E:/work/beta',
   ]);
 });
+
+test('hiding a change hides it in the archive too', () => {
+  // Otherwise Hide would look like it had quietly expired the moment somebody
+  // archived the change it was hiding.
+  const root = rootOf('E:/work/alpha', ['one', 'two']);
+  const archived: Change[] = ['old-one', 'old-two'].map((id) => ({
+    id,
+    path: `E:/work/alpha/openspec/changes/archive/${id}`,
+    rootPath: 'E:/work/alpha',
+    documents: { proposal: true, design: false, tasks: false, specs: false },
+    createdInferred: false,
+    undecomposed: true,
+    archived: true,
+    problems: [],
+  }));
+  const withArchive: LedgerModel = {
+    roots: [{ ...root, archived }],
+    builtAt: new Date(0),
+  };
+
+  const filtered = applyExclusions(withArchive, [
+    'E:/work/alpha/openspec/changes/archive/old-one',
+  ]);
+  assert.deepEqual(filtered.roots[0]?.archived?.map((change) => change.id), ['old-two']);
+  assert.deepEqual(filtered.roots[0]?.changes.map((change) => change.id), ['one', 'two']);
+});
+
+test('a root whose archive survives untouched is passed through, not copied', () => {
+  const rootModel = { ...rootOf('E:/work/alpha', ['one']), archived: [] };
+  const withArchive: LedgerModel = { roots: [rootModel], builtAt: new Date(0) };
+  // The list is rebuilt, but a root that lost nothing is the same object, so an
+  // exclusion that matches nothing costs no allocation per root.
+  assert.equal(applyExclusions(withArchive, ['E:/work/nowhere']).roots[0], rootModel);
+});

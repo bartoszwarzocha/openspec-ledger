@@ -186,7 +186,34 @@ on-disk record.
 prompt and response text never is, nothing is transmitted anywhere, and the whole layer is off
 unless you turn it on.
 
-### 5. Getting work moving again
+### 5. Current and Archive
+
+`openspec archive` moves a finished change into `openspec/changes/archive/` and folds its spec
+deltas into `openspec/specs/`. What it leaves behind is a record of the work — and every list in
+this extension is about the work in flight, so the archive is a **separate scope**, not a filter.
+
+Two buttons at the top of the Overview switch between them, and the same pair sits in the view
+title of the tree. In the archive:
+
+- Nothing archived is counted in any badge, ranking, aggregate or movement report. Stepping into
+  the archive does not change the ready-to-archive badge either: work waiting for a decision goes
+  on waiting whichever view you are in.
+- **No change is ever reported as stale.** An archived change has not advanced since the day it was
+  put away and never will; a "stalled 400 days" warning on finished work is an alarm you would
+  learn to ignore.
+- The captions say what the change *was*, not what it waits for: `archived 2026-03-03`,
+  `archived 2026-05-11, 3 tasks open`, `archived, not decomposed`. The middle one is the useful one
+  — it is how you find the work that was quietly shelved rather than finished.
+- **The archive date comes from git**, not from the filesystem: the commit that put the files at
+  their archive path, read once per root after the list is already on screen. A directory's mtime
+  is reset by a fresh clone and the date in a change's id is its *creation* date, so neither is
+  used. Where the history cannot answer, the caption reads `archived` and stops — there is no
+  guessed date anywhere.
+- Each scope keeps its own filter, and the archive is read from disk only while you are looking at
+  it, so a project with three hundred archived changes costs nothing on the path that draws the
+  active list.
+
+### 6. Getting work moving again
 
 - Tick a checkbox in the tree and it is written back to `tasks.md` as one line, through a workspace
   edit that undo reverses. The line is re-read first: if an agent has changed the file underneath,
@@ -246,6 +273,7 @@ All are under the **OpenSpec Ledger** category.
 | Refresh | View title |
 | Sort Changes By… | View title |
 | Show Only Changes Ready to Archive / Show All Changes | View title |
+| Show Archive / Show Current Changes | View title, Overview header, command palette |
 | Movement Report | View title menu, command palette |
 | Rescan Claude Code Transcripts | View title menu, command palette |
 | Open Change Detail | Change context menu |

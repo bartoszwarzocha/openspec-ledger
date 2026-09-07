@@ -24,8 +24,14 @@ const PROPOSAL_FILE = 'proposal.md';
 const DESIGN_FILE = 'design.md';
 const SPECS_DIR = 'specs';
 
-/** Directories under `changes/` that are not themselves changes. */
-const ARCHIVE_DIR = 'archive';
+/**
+ * The one directory under `changes/` that is not itself a change.
+ *
+ * `openspec archive` moves a finished change in here and folds its spec deltas
+ * into `openspec/specs/`, so what is inside is a record rather than work: it is
+ * enumerated only when the reader asks for it, by `listArchivedChangeIds`.
+ */
+export const ARCHIVE_DIR = 'archive';
 
 interface CacheEntry {
   stamp: FileStamp;
@@ -96,6 +102,8 @@ export interface ReadChangeOptions {
   tabWidth?: number;
   cache?: FileCache;
   signal?: AbortSignal;
+  /** Read from `changes/archive/<id>` instead of `changes/<id>`. */
+  archived?: boolean;
 }
 
 /** Immediate subdirectories of `openspec/changes/`, sorted, without `archive`. */
@@ -106,6 +114,17 @@ export async function listChangeIds(root: OpenSpecRoot): Promise<string[]> {
   return names.filter((name) => name.toLowerCase() !== ARCHIVE_DIR);
 }
 
+/**
+ * Immediate subdirectories of `openspec/changes/archive/`, sorted.
+ *
+ * An absent directory is an empty list, not a problem: a project that has
+ * archived nothing yet has no reason to hold the folder, and reporting that as
+ * something wrong would put a warning on every young repository.
+ */
+export async function listArchivedChangeIds(root: OpenSpecRoot): Promise<string[]> {
+  return fsx.listDirectories(path.join(root.openspecPath, 'changes', ARCHIVE_DIR));
+}
+
 export async function readChange(
   root: OpenSpecRoot,
   changeId: string,
@@ -113,7 +132,9 @@ export async function readChange(
 ): Promise<Change> {
   options.signal?.throwIfAborted();
 
-  const dir = path.join(root.openspecPath, 'changes', changeId);
+  const dir = options.archived
+    ? path.join(root.openspecPath, 'changes', ARCHIVE_DIR, changeId)
+    : path.join(root.openspecPath, 'changes', changeId);
   const problems: string[] = [];
   const [files, directories] = await Promise.all([fsx.listFiles(dir), fsx.listDirectories(dir)]);
 
@@ -138,6 +159,10 @@ export async function readChange(
     undecomposed: !documents.tasks,
     problems,
   };
+
+  if (options.archived) {
+    change.archived = true;
+  }
 
   if (files.includes(META_FILE)) {
     const meta = await readMetadata(path.join(dir, META_FILE), options.cache, problems);

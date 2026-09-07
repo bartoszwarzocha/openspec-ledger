@@ -2,7 +2,7 @@
   "name": "openspec-ledger",
   "displayName": "OpenSpec Ledger",
   "description": "The only OpenSpec extension with a memory: see what moved this week, what has been stuck for months, and whether a ticked box is backed by real commits.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "bartosz-warzocha",
   "license": "MIT",
   "repository": {
@@ -144,6 +144,18 @@
         "category": "OpenSpec Ledger"
       },
       {
+        "command": "openspecLedger.showArchive",
+        "title": "Show Archive",
+        "category": "OpenSpec Ledger",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "openspecLedger.showCurrent",
+        "title": "Show Current Changes",
+        "category": "OpenSpec Ledger",
+        "icon": "$(checklist)"
+      },
+      {
         "command": "openspecLedger.setFilter",
         "title": "Filter Changes...",
         "category": "OpenSpec Ledger",
@@ -194,6 +206,16 @@
     "menus": {
       "view/title": [
         {
+          "command": "openspecLedger.showArchive",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/ && openspecLedger.scope != archive",
+          "group": "navigation@0"
+        },
+        {
+          "command": "openspecLedger.showCurrent",
+          "when": "view =~ /^openspecLedger\\.(ledger|overview)$/ && openspecLedger.scope == archive",
+          "group": "navigation@0"
+        },
+        {
           "command": "openspecLedger.setFilter",
           "when": "view =~ /^openspecLedger\\.(ledger|overview)$/ && !openspecLedger.filtered",
           "group": "navigation@1"
@@ -215,7 +237,7 @@
         },
         {
           "command": "openspecLedger.archiveCompleted",
-          "when": "view =~ /^openspecLedger.(ledger|overview)$/",
+          "when": "view =~ /^openspecLedger.(ledger|overview)$/ && openspecLedger.scope != archive",
           "group": "1_ledger@0"
         },
         {

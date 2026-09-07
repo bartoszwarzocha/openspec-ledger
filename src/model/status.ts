@@ -19,6 +19,13 @@ export const DEFAULT_STALE_AFTER_DAYS = 30;
  * 2. Complete next. Finished work is never stale, however long it has sat -
  *    what it is waiting for is archiving, not attention.
  * 3. Stale last, and only against a threshold the user can move or switch off.
+ *
+ * An archived change is never stale either, and for a stronger reason than a
+ * finished one: it has not advanced since the day it was archived and never
+ * will. Reporting that as "stalled 400 days" would turn every archive into a
+ * wall of warnings about work that is over. What the three remaining states
+ * then say about an archived change is whether it was finished when it was
+ * put away, which is the one thing worth knowing about it.
  */
 export function statusOf(
   change: Change,
@@ -31,7 +38,7 @@ export function statusOf(
   if (isComplete(change.taskFile?.progress)) {
     return 'complete';
   }
-  if (staleAfterDays > 0 && stall !== undefined && stall.days >= staleAfterDays) {
+  if (!change.archived && staleAfterDays > 0 && stall !== undefined && stall.days >= staleAfterDays) {
     return 'stale';
   }
   return 'active';

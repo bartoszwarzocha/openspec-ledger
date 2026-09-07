@@ -47,7 +47,18 @@ export function applyExclusions(model: LedgerModel, excluded: readonly string[])
       continue;
     }
     const changes = rootModel.changes.filter((change) => !isExcluded(change.path, excluded));
-    roots.push(changes.length === rootModel.changes.length ? rootModel : { ...rootModel, changes });
+    // The archive is filtered on the same list: hiding a change and then
+    // finding it again the moment it is archived would make Hide look like it
+    // had quietly expired.
+    const archived = rootModel.archived?.filter((change) => !isExcluded(change.path, excluded));
+    const unchanged =
+      changes.length === rootModel.changes.length &&
+      archived?.length === rootModel.archived?.length;
+    if (unchanged) {
+      roots.push(rootModel);
+    } else {
+      roots.push(archived === undefined ? { ...rootModel, changes } : { ...rootModel, changes, archived });
+    }
   }
 
   return { ...model, roots };

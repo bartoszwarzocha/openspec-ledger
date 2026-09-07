@@ -27,7 +27,7 @@ import type {
   Stall,
   TreeOptions,
 } from '../model/types.ts';
-import { filterChanges, sortChanges } from './nodes.ts';
+import { changesIn, filterChanges, scopeOf, sortChanges } from './nodes.ts';
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -48,7 +48,28 @@ export function noteFor(
   progress: Progress | undefined,
   stall: Stall | undefined,
   lastAdvanced: string | undefined,
+  archived = false,
+  archivedAt?: string,
 ): string {
+  // An archived caption is built the same way whatever state the change was
+  // left in: the word, then the date when git could supply one, then the one
+  // qualifier that is worth carrying. "Ready to archive" on something already
+  // archived, and "last advanced" on something that never will again, are both
+  // captions describing a state the change has left.
+  if (archived) {
+    const head = archivedAt ? `archived ${archivedAt}` : 'archived';
+    switch (status) {
+      case 'complete':
+        return head;
+      case 'undecomposed':
+        return `${head}, not decomposed`;
+      default: {
+        const left = progress ? progress.total - progress.completed : 0;
+        return left > 0 ? `${head}, ${plural(left, 'task')} open` : head;
+      }
+    }
+  }
+
   switch (status) {
     case 'complete':
       return 'ready to archive';
@@ -104,7 +125,14 @@ function rowFor(
     rootLabel,
     changeId: change.id,
     status,
-    note: noteFor(status, progress, stall, options.lastAdvanced[key]),
+    note: noteFor(
+      status,
+      progress,
+      stall,
+      options.lastAdvanced[key],
+      change.archived === true,
+      options.archivedAt?.[key],
+    ),
     filePath: targetPath(change),
   };
   if (progress) {
@@ -126,10 +154,11 @@ function rowFor(
  * panel when the grouping is worth showing.
  */
 export function buildOverview(model: LedgerModel, options: TreeOptions): Overview {
+  const scope = scopeOf(options);
   const rows: OverviewRow[] = [];
   for (const rootModel of model.roots) {
     const rootPath = rootModel.root.path;
-    const kept = filterChanges(rootModel.changes, options);
+    const kept = filterChanges(changesIn(rootModel, scope), options);
     const sorted = sortChanges(kept, {
       sortMode: options.sortMode,
       stalls: options.stalls,
@@ -146,6 +175,7 @@ export function buildOverview(model: LedgerModel, options: TreeOptions): Overvie
     rows,
     totals: rootStatusOf(rows.map((row) => row.status)),
     filter: options.filter,
+    scope,
   };
   if (options.loading) {
     overview.loading = true;

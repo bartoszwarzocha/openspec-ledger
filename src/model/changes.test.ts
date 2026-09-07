@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { FileCache, listChangeIds, readChange } from './changes.ts';
+import { FileCache, listArchivedChangeIds, listChangeIds, readChange } from './changes.ts';
 import type { OpenSpecRoot } from './types.ts';
 
 // ---------------------------------------------------------------------------
@@ -311,5 +311,69 @@ test('an already cancelled read rejects rather than returning half a change', as
   await withFixture(async (dir, root) => {
     await writeChange(dir, 'cancelled', { 'tasks.md': TASKS });
     await assert.rejects(() => readChange(root, 'cancelled', { signal: AbortSignal.abort() }));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The archive
+// ---------------------------------------------------------------------------
+
+test('listArchivedChangeIds enumerates changes/archive, sorted', async () => {
+  await withFixture(async (dir, root) => {
+    await writeChange(dir, 'live-change', { 'tasks.md': TASKS });
+    await writeChange(dir, 'zeta', { 'tasks.md': TASKS }, path.join('changes', 'archive'));
+    await writeChange(dir, 'alpha', { 'tasks.md': TASKS }, path.join('changes', 'archive'));
+
+    assert.deepEqual(await listArchivedChangeIds(root), ['alpha', 'zeta']);
+  });
+});
+
+test('a project that has archived nothing reports an empty archive, not a problem', async () => {
+  await withFixture(async (dir, root) => {
+    await writeChange(dir, 'live-change', { 'tasks.md': TASKS });
+    assert.deepEqual(await listArchivedChangeIds(root), []);
+  });
+});
+
+test('an archived change is read from changes/archive and says it is archived', async () => {
+  await withFixture(async (dir, root) => {
+    const changeDir = await writeChange(
+      dir,
+      'shipped',
+      { 'tasks.md': TASKS, 'proposal.md': '# Shipped' },
+      path.join('changes', 'archive'),
+    );
+
+    const change = await readChange(root, 'shipped', { archived: true });
+
+    assert.equal(change.path, changeDir);
+    assert.equal(change.archived, true);
+    assert.equal(change.documents.proposal, true);
+    assert.ok(change.taskFile, 'the archived tasks.md is parsed like any other');
+    assert.deepEqual(change.problems, []);
+  });
+});
+
+test('an active change carries no archived flag at all', async () => {
+  await withFixture(async (dir, root) => {
+    await writeChange(dir, 'live-change', { 'tasks.md': TASKS });
+    const change = await readChange(root, 'live-change');
+    assert.equal(change.archived, undefined);
+  });
+});
+
+test('the same id in both places reads as two different changes', async () => {
+  await withFixture(async (dir, root) => {
+    // A name can be reused after an archive, and the two must not collide: the
+    // path is what tells them apart everywhere downstream.
+    await writeChange(dir, 'lookup', { 'tasks.md': '- [ ] 1.1 One' });
+    await writeChange(dir, 'lookup', { 'tasks.md': '- [x] 1.1 One' }, path.join('changes', 'archive'));
+
+    const live = await readChange(root, 'lookup');
+    const archived = await readChange(root, 'lookup', { archived: true });
+
+    assert.notEqual(live.path, archived.path);
+    assert.equal(live.taskFile?.progress.percent, 0);
+    assert.equal(archived.taskFile?.progress.percent, 100);
   });
 });

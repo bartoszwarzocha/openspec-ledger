@@ -4,7 +4,7 @@
  * what this prints is what the view shows, minus the pixels. The first argument
  * is the tree to read; the path below is only a placeholder for your own:
  *
- *   node scripts/tree-preview.ts "D:\\work\\projects" [sortMode] [--tasks]
+ *   node scripts/tree-preview.ts "D:\\work\\projects" [sortMode] [filter] [--tasks] [--archive]
  *
  * Read-only, and it needs no editor.
  */
@@ -13,6 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { discoverRoots } from '../src/discovery/roots.ts';
+import { readArchiveDates } from '../src/history/archived.ts';
 import { backfillRoot } from '../src/history/backfill.ts';
 import { stallOf } from '../src/history/derive.ts';
 import { HistoryStore } from '../src/history/store.ts';
@@ -21,19 +22,22 @@ import { changeKey } from '../src/model/keys.ts';
 import type { Stall } from '../src/model/types.ts';
 import { searchFilesystem } from '../src/discovery/search.ts';
 import { ModelBuilder } from '../src/model/build.ts';
-import type { LedgerNode, SortMode } from '../src/model/types.ts';
+import type { LedgerNode, LedgerScope, SortMode } from '../src/model/types.ts';
 import { buildTree, countReadyToArchive } from '../src/view/nodes.ts';
 
 const base = process.argv[2] ?? 'D:\\work\\projects';
 const sortMode = (process.argv[3] as SortMode | undefined) ?? 'nearest-done';
 const showTasks = process.argv.includes('--tasks');
+const scope: LedgerScope = process.argv.includes('--archive') ? 'archive' : 'current';
 
 const roots = await discoverRoots({
   workspaceFolders: [base],
   additionalRoots: [],
   searchWorkspace: (signal) => searchFilesystem([base], { signal }),
 });
-const model = await new ModelBuilder().build(roots);
+const model = await new ModelBuilder().build(roots, undefined, {
+  includeArchived: scope === 'archive',
+});
 
 // Real stall figures, so the warning icons are the ones the user would see.
 const store = new HistoryStore(path.join(os.tmpdir(), `osl-tree-${process.pid}`));
@@ -56,8 +60,21 @@ for (const rootModel of model.roots) {
 }
 await store.flush();
 
+// The dates the archive scope shows, read the way the extension reads them.
+const archivedAt: Record<string, string | undefined> = {};
+if (scope === 'archive') {
+  for (const rootModel of model.roots) {
+    const dates = await readArchiveDates({ root: rootModel.root });
+    for (const [id, date] of Object.entries(dates)) {
+      archivedAt[changeKey(rootModel.root.path, id)] = date;
+    }
+  }
+}
+
 const nodes = buildTree(model, {
   sortMode,
+  scope,
+  archivedAt,
   filter: (process.argv[4] as never) ?? 'all',
   stalls,
   lastAdvanced: {},
@@ -79,7 +96,7 @@ function walk(list: readonly LedgerNode[], depth: number): void {
   }
 }
 
-console.log(`sort mode: ${sortMode}\n`);
+console.log(`scope: ${scope}, sort mode: ${sortMode}\n`);
 walk(nodes, 0);
 
 console.log('\n--- node counts ---');

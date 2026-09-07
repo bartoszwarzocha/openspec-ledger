@@ -14,8 +14,15 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 
-import type { ChangeStatus, FilterMode, Overview, OverviewRow, RootStatus } from '../model/types.ts';
-import { FILTER_MODES } from '../model/types.ts';
+import type {
+  ChangeStatus,
+  FilterMode,
+  LedgerScope,
+  Overview,
+  OverviewRow,
+  RootStatus,
+} from '../model/types.ts';
+import { FILTER_MODES, LEDGER_SCOPES } from '../model/types.ts';
 
 export interface OverviewSelection {
   rootPath: string;
@@ -33,17 +40,26 @@ export class OverviewViewProvider implements vscode.WebviewViewProvider {
 
   private readonly selected = new vscode.EventEmitter<OverviewSelection>();
   private readonly filtered = new vscode.EventEmitter<FilterMode>();
+  private readonly scoped = new vscode.EventEmitter<LedgerScope>();
   private readonly acted = new vscode.EventEmitter<OverviewAction>();
   private readonly listeners: vscode.Disposable[] = [];
   private view: vscode.WebviewView | undefined;
   private disposed = false;
 
   /** Until the controller says otherwise, an empty list means "not yet". */
-  private overview: Overview = { rows: [], totals: emptyTotals(), filter: 'all', loading: true };
+  private overview: Overview = {
+    rows: [],
+    totals: emptyTotals(),
+    filter: 'all',
+    scope: 'current',
+    loading: true,
+  };
 
   readonly onDidSelect: vscode.Event<OverviewSelection> = this.selected.event;
   /** A tally entry was clicked; the header is the fastest route to a filter. */
   readonly onDidFilter: vscode.Event<FilterMode> = this.filtered.event;
+  /** Current or Archive was pressed. Unlike a filter, this needs a rebuild. */
+  readonly onDidChangeScope: vscode.Event<LedgerScope> = this.scoped.event;
   /** A row action was pressed, so the reader never has to leave this list. */
   readonly onDidAct: vscode.Event<OverviewAction> = this.acted.event;
 
@@ -80,6 +96,22 @@ export class OverviewViewProvider implements vscode.WebviewViewProvider {
     this.render();
   }
 
+  /**
+   * Say a pass is running without touching the rows.
+   *
+   * Separate from `setOverview` because the rows on screen are the answer to
+   * the *previous* question and there is no new answer yet: rebuilding them
+   * against a model that has not read the new scope is exactly the flash this
+   * avoids. So the list stays, dimmed, under a bar.
+   */
+  setBusy(busy: boolean): void {
+    if ((this.overview.busy === true) === busy) {
+      return;
+    }
+    this.overview = { ...this.overview, busy };
+    this.render();
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
@@ -90,6 +122,7 @@ export class OverviewViewProvider implements vscode.WebviewViewProvider {
     }
     this.selected.dispose();
     this.filtered.dispose();
+    this.scoped.dispose();
     this.acted.dispose();
     this.view = undefined;
   }
@@ -109,8 +142,16 @@ export class OverviewViewProvider implements vscode.WebviewViewProvider {
       rootPath?: unknown;
       changeId?: unknown;
       filter?: unknown;
+      scope?: unknown;
       action?: unknown;
     };
+
+    if (payload.type === 'scope') {
+      if (typeof payload.scope === 'string' && (LEDGER_SCOPES as readonly string[]).includes(payload.scope)) {
+        this.scoped.fire(payload.scope as LedgerScope);
+      }
+      return;
+    }
 
     if (payload.type === 'filter') {
       // Validated against the known set rather than trusted: the page is ours,
@@ -208,6 +249,21 @@ const STATUS_WORDS: Record<ChangeStatus, string> = {
   undecomposed: 'not decomposed',
 };
 
+/**
+ * The two words that mean something else once the work is over.
+ *
+ * `stalled` needs no entry: `statusOf` never calls an archived change stale, so
+ * that chip cannot appear in this scope at all.
+ */
+const ARCHIVE_STATUS_WORDS: Partial<Record<ChangeStatus, string>> = {
+  complete: 'finished',
+  active: 'left unfinished',
+};
+
+function statusWord(status: ChangeStatus, scope: LedgerScope): string {
+  return (scope === 'archive' ? ARCHIVE_STATUS_WORDS[status] : undefined) ?? STATUS_WORDS[status];
+}
+
 const TALLY_ORDER: readonly ChangeStatus[] = ['complete', 'stale', 'active', 'undecomposed'];
 
 function emptyTotals(): RootStatus {
@@ -242,7 +298,7 @@ export function splitChangeId(changeId: string): { date?: string; name: string }
   return date !== undefined && name !== undefined ? { date, name } : { name: changeId };
 }
 
-function renderRow(row: OverviewRow, showRoot: boolean): string {
+function renderRow(row: OverviewRow, showRoot: boolean, archived: boolean): string {
   const counts = row.progress
     ? `${row.progress.completed}/${row.progress.total} &middot; ${row.progress.percent}%`
     : '&ndash;';
@@ -253,7 +309,11 @@ function renderRow(row: OverviewRow, showRoot: boolean): string {
   // change floating away from the numbers it belongs to. Where the change lives
   // matters least of the three, so it goes last and dimmed.
   const stats = [counts, row.note].filter((part) => part.length > 0).join(' &middot; ');
-  const trailing = [date, showRoot ? row.rootLabel : undefined].filter(
+  // In the archive the caption already carries a date - the day the change was
+  // put away - and the one in the id is the day it was created. Two bare dates
+  // on one row, neither labelled, would be read as a range or as a mistake, so
+  // the creation date steps back to the tooltip and the detail panel.
+  const trailing = [archived ? undefined : date, showRoot ? row.rootLabel : undefined].filter(
     (part): part is string => part !== undefined,
   );
   const context =
@@ -265,7 +325,7 @@ function renderRow(row: OverviewRow, showRoot: boolean): string {
   // the reader leave this list to take it is what the filter was meant to save
   // them. The button rides on the row rather than living in a menu.
   const action =
-    row.status === 'complete'
+    row.status === 'complete' && !archived
       ? `<button type="button" class="row-action" data-action="archive" ${where}` +
         ` title="${escapeHtml(`Archive ${row.changeId}`)}" aria-label="${escapeHtml(`Archive ${row.changeId}`)}">${ARCHIVE_ICON}</button>`
       : '';
@@ -295,11 +355,11 @@ const STATUS_FILTERS: Record<ChangeStatus, FilterMode> = {
  * exists to remove. Clicking the entry that is already active clears the filter,
  * so the same click both narrows and widens.
  */
-function renderHeader(totals: RootStatus, active: FilterMode): string {
+function renderHeader(totals: RootStatus, active: FilterMode, scope: LedgerScope): string {
   const items = TALLY_ORDER.filter((status) => totals[status] > 0).map((status) => {
     const filter = STATUS_FILTERS[status];
     const on = filter === active;
-    const label = escapeHtml(STATUS_WORDS[status]);
+    const label = escapeHtml(statusWord(status, scope));
     const title = on ? `Showing only ${label} - click to show all` : `Show only ${label}`;
     return (
       `<button type="button" class="tally-item ${status}${on ? ' on' : ''}"` +
@@ -312,8 +372,9 @@ function renderHeader(totals: RootStatus, active: FilterMode): string {
   // One press for the whole set. It sits beside the count it acts on, so the
   // reader who has just been told eight things are finished can deal with all
   // eight without opening anything.
+  // Never in the archive: everything there has already been through it.
   const archiveAll =
-    totals.complete > 0
+    totals.complete > 0 && scope !== 'archive'
       ? `<button type="button" class="tally-action" data-action="archive-all"` +
         ` title="${escapeHtml(`Archive all ${totals.complete} completed changes`)}">` +
         `${ARCHIVE_ICON}<span>Archive ${totals.complete}</span></button>`
@@ -323,13 +384,66 @@ function renderHeader(totals: RootStatus, active: FilterMode): string {
 }
 
 /**
- * An empty list is an answer, and which answer it is matters: one of these says
- * wait, the other says look at the filter.
+ * The two words the scope switch answers to.
+ *
+ * `Current` rather than `Active`: the tally already uses "in progress" for one
+ * of the four states, and a switch that shares a word with a filter beside it
+ * reads as though the two do the same job.
  */
-function renderEmpty(loading: boolean): string {
+const SCOPE_LABELS: Record<LedgerScope, string> = {
+  current: 'Current',
+  archive: 'Archive',
+};
+
+const SCOPE_TITLES: Record<LedgerScope, string> = {
+  current: 'Changes still in openspec/changes/',
+  archive: 'Changes moved into openspec/changes/archive/',
+};
+
+/**
+ * The scope switch, and the reason it is rendered before anything else can
+ * decide not to render.
+ *
+ * An archive with nothing in it draws the empty state, and an empty state with
+ * no way back would strand the reader in a view they cannot leave without the
+ * command palette. So the switch is outside that branch, always.
+ */
+function renderScopes(active: LedgerScope): string {
+  const buttons = LEDGER_SCOPES.map((scope) => {
+    const on = scope === active;
+    return (
+      `<button type="button" class="scope${on ? ' on' : ''}" data-scope="${scope}"` +
+      ` title="${escapeHtml(SCOPE_TITLES[scope])}" aria-pressed="${on ? 'true' : 'false'}">` +
+      `${escapeHtml(SCOPE_LABELS[scope])}</button>`
+    );
+  });
+  return `<nav class="scopes" role="group" aria-label="Which changes to show">${buttons.join('')}</nav>`;
+}
+
+/**
+ * The bar that says a pass is running.
+ *
+ * Pressing Archive can mean reading a directory bigger than the active list,
+ * and until now that looked like nothing happening: the old rows sat there, the
+ * button was pressed, and the answer arrived some time later. A slim
+ * indeterminate bar under the switch is the smallest honest thing to draw -
+ * there is no total to count towards, and replacing the rows with a spinner
+ * would throw away a list that is still worth reading while the next one loads.
+ */
+const BUSY_BAR = '<div class="busy" role="status" aria-label="Loading"><span></span></div>';
+
+/**
+ * An empty list is an answer, and which answer it is matters: one says wait,
+ * one says look at the filter, and one says nothing has been archived.
+ */
+function renderEmpty(loading: boolean, scope: LedgerScope): string {
   if (loading) {
     return `<div class="empty"><p>Looking for OpenSpec changes...</p>
 <p class="hint">The list appears as soon as discovery has answered.</p></div>`;
+  }
+  if (scope === 'archive') {
+    return `<div class="empty"><p>Nothing has been archived yet.</p>
+<p class="hint">A change moves here when <code>openspec archive</code> folds its spec deltas into <code>openspec/specs/</code>. Press Current to go back to the work in flight.</p></div>`;
   }
   return `<div class="empty"><p>No change matches the current filter.</p>
 <p class="hint">Clear the filter in the view title to see every change. If the list is still empty, no OpenSpec change was found.</p></div>`;
@@ -345,12 +459,18 @@ export function renderHtml(overview: Overview, nonce: string): string {
   // The root label is noise when everything comes from one root, and the one
   // thing you cannot do without when it does not.
   const showRoot = new Set(overview.rows.map((row) => row.rootPath)).size > 1;
-  const body =
-    overview.rows.length === 0
-      ? renderEmpty(overview.loading === true)
-      : `${renderHeader(overview.totals, overview.filter)}<div class="rows">${overview.rows
-          .map((row) => renderRow(row, showRoot))
-          .join('')}</div>`;
+  const scope = overview.scope ?? 'current';
+  const empty = overview.rows.length === 0;
+  const busy = overview.busy === true;
+  const top =
+    `<div class="top">${renderScopes(scope)}` +
+    `${empty ? '' : renderHeader(overview.totals, overview.filter, scope)}` +
+    `${busy ? BUSY_BAR : ''}</div>`;
+  const body = empty
+    ? `${top}${renderEmpty(overview.loading === true, scope)}`
+    : `${top}<div class="rows${busy ? ' waiting' : ''}">${overview.rows
+        .map((row) => renderRow(row, showRoot, scope === 'archive'))
+        .join('')}</div>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -388,16 +508,49 @@ p { margin: 0 0 6px; }
 .active { --status: var(--vscode-foreground); }
 .undecomposed { --status: var(--vscode-descriptionForeground); }
 .icon { color: var(--status); flex: none; }
-.tally {
+/* Scope switch and tally travel together: both answer "what am I looking at",
+   and a reader who scrolls a hundred archived changes must not lose the way
+   back out of the archive. */
+.top {
   position: sticky;
   top: 0;
   z-index: 1;
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.3));
+}
+/* Two words, not two icons. This is the one control that changes which universe
+   of changes the whole view is about, so it says so in language rather than
+   asking the reader to learn a glyph. */
+.scopes {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+}
+.scope {
+  flex: 1 1 0;
+  margin: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.35));
+  border-radius: 4px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.scope:hover { background: var(--vscode-toolbar-hoverBackground); }
+.scope:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.scope.on {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));
+  color: var(--vscode-button-foreground, var(--vscode-list-activeSelectionForeground));
+  font-weight: 600;
+}
+.tally {
   display: flex;
   flex-wrap: wrap;
   gap: 2px 14px;
   padding: 7px 12px 6px;
-  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-  border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.3));
 }
 .tally-item {
   display: inline-flex;
@@ -442,7 +595,31 @@ p { margin: 0 0 6px; }
 .tally-action:hover { background: var(--vscode-button-secondaryHoverBackground); }
 .tally-action:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .tally-item .count { color: var(--vscode-foreground); font-variant-numeric: tabular-nums; }
+/* A two-pixel indeterminate bar. There is no total to count towards - the pass
+   reads however many directories the project has - so a determinate bar would
+   be a fiction, and a spinner in the middle of the list would take away rows
+   that are still worth reading while the next set loads. */
+.busy { height: 2px; overflow: hidden; background: var(--vscode-panel-border, rgba(128,128,128,0.3)); }
+.busy > span {
+  display: block;
+  width: 34%;
+  height: 100%;
+  background: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  animation: slide 1.1s ease-in-out infinite;
+}
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(390%); }
+}
+/* Motion is decoration here: the bar's presence is the message, so a reader who
+   has asked for less of it still sees the state. */
+@media (prefers-reduced-motion: reduce) {
+  .busy > span { width: 100%; animation: none; opacity: 0.6; }
+}
 .rows { display: flex; flex-direction: column; }
+/* The rows are from before the pass that is running. Dimming says so without
+   removing them, which is the difference between "still working" and "gone". */
+.rows.waiting { opacity: 0.45; }
 /* The row holds the main button and, on a finished change, the archive action.
    A button cannot be nested inside a button, so the row itself is a container. */
 .row {
@@ -551,6 +728,12 @@ window.addEventListener('scroll', () => {
 document.addEventListener('click', (event) => {
   const target = event.target;
   if (!(target instanceof Element)) { return; }
+
+  const scope = target.closest('button[data-scope]');
+  if (scope) {
+    api.postMessage({ type: 'scope', scope: scope.getAttribute('data-scope') });
+    return;
+  }
 
   const tally = target.closest('button[data-filter]');
   if (tally) {

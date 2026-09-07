@@ -125,6 +125,15 @@ export interface Change {
   taskFile?: ParsedTaskFile;
   /** True when `tasks.md` is absent: the change was never decomposed. */
   undecomposed: boolean;
+  /**
+   * The change was read from `openspec/changes/archive/`, not from the active
+   * list.
+   *
+   * Absent rather than `false` on an active change: every fixture and every
+   * caller that predates archiving means "not archived" by saying nothing, and
+   * an optional flag lets that stay true.
+   */
+  archived?: boolean;
   /** Non-fatal problems; a change is never dropped because of one. */
   problems: string[];
 }
@@ -132,6 +141,22 @@ export interface Change {
 export interface RootModel {
   root: OpenSpecRoot;
   changes: Change[];
+  /**
+   * Changes under `openspec/changes/archive/`, read only while the reader is
+   * looking at them (design.md D15).
+   *
+   * A separate list rather than a flag on `changes`, because everything
+   * downstream - the badge, the aggregate, the history, the backfill, the
+   * movement report - iterates `changes` and must go on meaning the active
+   * ones. Making archiving a property of the elements would have put the
+   * burden of remembering that on every one of those readers; making it a
+   * different list means none of them can get it wrong.
+   *
+   * Absent means "not read", which the views cannot distinguish from "nothing
+   * archived" and do not need to: they only ask for it in the archive scope,
+   * where it has just been built.
+   */
+  archived?: Change[];
   /** Aggregate over decomposed changes only (design.md D5). */
   progress: Progress;
   problems: string[];
@@ -439,6 +464,23 @@ export type FilterMode =
   /** Anything with a task still open. */
   | 'unfinished';
 
+/**
+ * Which universe of changes the surfaces are showing.
+ *
+ * Deliberately not a seventh `FilterMode`. A filter is a lens on a list, so
+ * `all` has to keep meaning "everything in this list"; folding archiving into
+ * the same setting would have put finished, moved-away work back into every
+ * count, badge and ranking the moment the reader cleared the filter. The two
+ * are orthogonal: a scope says which list, a filter says which part of it.
+ */
+export type LedgerScope =
+  /** `openspec/changes/*` - the work in flight. */
+  | 'current'
+  /** `openspec/changes/archive/*` - what has been folded into the specs. */
+  | 'archive';
+
+export const LEDGER_SCOPES: readonly LedgerScope[] = ['current', 'archive'];
+
 export const FILTER_MODES: readonly FilterMode[] = [
   'all',
   'ready-to-archive',
@@ -451,10 +493,21 @@ export const FILTER_MODES: readonly FilterMode[] = [
 export interface TreeOptions {
   sortMode: SortMode;
   filter: FilterMode;
+  /** Which list the surfaces read. Absent is `current`, so old callers are unchanged. */
+  scope?: LedgerScope;
   /** Keyed by `changeKey(rootPath, changeId)`. */
   stalls: Record<string, Stall | undefined>;
   /** Keyed by `changeKey(rootPath, changeId)`; `YYYY-MM-DD`. */
   lastAdvanced: Record<string, string | undefined>;
+  /**
+   * When each archived change reached the archive, keyed by
+   * `changeKey(rootPath, changeId)`; `YYYY-MM-DD`.
+   *
+   * Read from git after the archive is already on screen, so an entry is absent
+   * both before the answer arrives and where the history has none. Absent means
+   * no date is shown - never an "unknown" that would look like a fact.
+   */
+  archivedAt?: Record<string, string | undefined>;
   /** True while discovery is still running, so empty means "not yet". */
   loading?: boolean;
   /**
@@ -519,10 +572,18 @@ export interface Overview {
   rows: OverviewRow[];
   /** The filter these rows were built under, so the header can show it as active. */
   filter: FilterMode;
+  /** The scope these rows came from; absent is `current`. */
+  scope?: LedgerScope;
   /** Counts across every row, for the header. */
   totals: RootStatus;
   /** True while discovery has not answered yet. */
   loading?: boolean;
+  /**
+   * A pass the reader is waiting on is in flight, and these rows are the ones
+   * from before it. Distinct from `loading`, which means there has never been
+   * an answer: here there is one on screen, it is just about to be replaced.
+   */
+  busy?: boolean;
 }
 
 // ---------------------------------------------------------------------------

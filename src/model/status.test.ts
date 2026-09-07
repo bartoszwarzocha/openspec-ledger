@@ -35,6 +35,19 @@ test('finished work is never stale, however long it has sat', () => {
   assert.equal(statusOf(changeOf(32, 32), stalled(400)), 'complete');
 });
 
+test('an archived change is never stale, however long it has sat there', () => {
+  // It has not advanced since the day it was archived and never will, so a
+  // "stalled 400 days" warning would be a permanent alarm about finished work.
+  const archived = { ...changeOf(61, 63), archived: true };
+  assert.equal(statusOf(archived, stalled(400)), 'active');
+  assert.equal(statusOf({ ...changeOf(63, 63), archived: true }, stalled(400)), 'complete');
+  assert.equal(statusOf({ ...changeOf(0, 0, true), archived: true }, stalled(400)), 'undecomposed');
+});
+
+test('archiving changes nothing for a change still in flight', () => {
+  assert.equal(statusOf({ ...changeOf(61, 63), archived: false }, stalled(400)), 'stale');
+});
+
 test('a change past the threshold is stale, one short of it is not', () => {
   assert.equal(statusOf(changeOf(61, 63), stalled(30)), 'stale');
   assert.equal(statusOf(changeOf(61, 63), stalled(29)), 'active');

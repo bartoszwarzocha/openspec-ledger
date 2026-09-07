@@ -27,8 +27,13 @@ function rootFor(dir: string): OpenSpecRoot {
   };
 }
 
-async function writeChange(dir: string, id: string, files: Record<string, string>): Promise<string> {
-  const changeDir = path.join(dir, 'openspec', 'changes', id);
+async function writeChange(
+  dir: string,
+  id: string,
+  files: Record<string, string>,
+  changesDir = 'changes',
+): Promise<string> {
+  const changeDir = path.join(dir, 'openspec', changesDir, id);
   await fs.mkdir(changeDir, { recursive: true });
   for (const [name, content] of Object.entries(files)) {
     await fs.writeFile(path.join(changeDir, name), content, 'utf8');
@@ -216,5 +221,80 @@ test('a warm rebuild of 33 changes stays under 250 ms', async () => {
     durations.sort((a, b) => a - b);
     const median = durations[1] ?? Number.POSITIVE_INFINITY;
     assert.ok(median < 250, `warm rebuild took ${median.toFixed(1)} ms`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The archive is read only when it is asked for
+// ---------------------------------------------------------------------------
+
+const ARCHIVE_DIR_PATH = path.join('changes', 'archive');
+
+test('an ordinary build does not read the archive at all', async () => {
+  await withFixture(async (dir, root) => {
+    await writeChange(dir, 'alpha', { 'tasks.md': taskFile(1, 2) });
+    await writeChange(dir, 'shipped', { 'tasks.md': taskFile(3, 3) }, ARCHIVE_DIR_PATH);
+
+    const cache = new CountingCache();
+    const model = await new ModelBuilder({ cache }).build([root]);
+    const built = model.roots[0];
+    assert.ok(built);
+
+    assert.deepEqual(
+      built.changes.map((change) => change.id),
+      ['alpha'],
+    );
+    assert.equal(built.archived, undefined, 'absent, not an empty list');
+    // The guarantee is observable: no file under archive/ was opened.
+    assert.equal(
+      cache.reads.filter((file) => file.includes(`${path.sep}archive${path.sep}`)).length,
+      0,
+    );
+  });
+});
+
+test('includeArchived reads changes/archive and flags what it finds', async () => {
+  await withFixture(async (dir, root) => {
+    await writeChange(dir, 'alpha', { 'tasks.md': taskFile(1, 2) });
+    await writeChange(dir, 'shipped', { 'tasks.md': taskFile(3, 3) }, ARCHIVE_DIR_PATH);
+    await writeChange(dir, 'abandoned', { 'tasks.md': taskFile(1, 4) }, ARCHIVE_DIR_PATH);
+
+    const model = await new ModelBuilder().build([root], undefined, { includeArchived: true });
+    const built = model.roots[0];
+    assert.ok(built);
+
+    assert.deepEqual(
+      built.changes.map((change) => change.id),
+      ['alpha'],
+    );
+    assert.deepEqual(
+      built.archived?.map((change) => change.id),
+      ['abandoned', 'shipped'],
+    );
+    assert.ok(built.archived?.every((change) => change.archived === true));
+  });
+});
+
+test("the archive stays out of a root's progress figure", async () => {
+  await withFixture(async (dir, root) => {
+    await writeChange(dir, 'alpha', { 'tasks.md': taskFile(1, 4) });
+    // Three finished changes in the archive would drag the root to 90 percent
+    // if they counted, which would say the work in flight is nearly done.
+    for (const id of ['one', 'two', 'three']) {
+      await writeChange(dir, id, { 'tasks.md': taskFile(8, 8) }, ARCHIVE_DIR_PATH);
+    }
+
+    const model = await new ModelBuilder().build([root], undefined, { includeArchived: true });
+    assert.deepEqual(model.roots[0]?.progress, { completed: 1, total: 4, percent: 25 });
+  });
+});
+
+test('a root with no archive directory builds an empty archive rather than a problem', async () => {
+  await withFixture(async (dir, root) => {
+    await writeChange(dir, 'alpha', { 'tasks.md': taskFile(1, 2) });
+
+    const model = await new ModelBuilder().build([root], undefined, { includeArchived: true });
+    assert.deepEqual(model.roots[0]?.archived, []);
+    assert.deepEqual(model.roots[0]?.problems, []);
   });
 });

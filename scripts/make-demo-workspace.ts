@@ -55,6 +55,15 @@ interface ChangeSpec {
   design?: boolean;
   /** Source files the commits also touch, so git evidence has something real. */
   sources?: string[];
+  /**
+   * The date `openspec archive` moved it into `openspec/changes/archive/`.
+   *
+   * A real move, committed on that date: the directory disappears from
+   * `changes/` and reappears under `archive/`, which is what the extension has
+   * to read. Copying it into both places would produce an archive that no
+   * repository ever looks like.
+   */
+  archivedAt?: string;
 }
 
 interface RepoSpec {
@@ -103,6 +112,33 @@ const REPOS: RepoSpec[] = [
     title: 'API Gateway',
     purpose: 'Edge routing, authentication and rate limiting for every public request.',
     changes: [
+      {
+        id: '2026-02-18-tls-cipher-policy',
+        summary:
+          'The edge accepted three cipher suites the security review will not sign off on. ' +
+          'This narrows the list and states what breaks for the two oldest clients.',
+        created: '2026-02-18',
+        revisions: ['2026-02-19', '2026-02-26'],
+        archivedAt: '2026-03-03',
+        sources: ['src/tls/policy.ts', 'src/tls/handshake.ts'],
+        sections: [
+          {
+            title: '1. Policy',
+            tasks: [
+              { text: 'Pin the accepted suites in `src/tls/policy.ts`', doneAt: 0 },
+              { text: 'Reject the three retired suites at the handshake', doneAt: 0 },
+              { text: 'Record the negotiated suite on every connection', doneAt: 1 },
+            ],
+          },
+          {
+            title: '2. Clients',
+            tasks: [
+              { text: 'Name the two clients that lose support, with their contract dates', doneAt: 1 },
+              { text: 'Ship the policy behind a flag, then enable it', doneAt: 1 },
+            ],
+          },
+        ],
+      },
       {
         id: 'rate-limit-per-tenant',
         summary:
@@ -388,6 +424,16 @@ const REPOS: RepoSpec[] = [
     purpose: 'Invoices, payments, dunning and the ledger the finance team reconciles against.',
     changes: [
       {
+        id: 'reconcile-stripe-payouts',
+        summary:
+          'Payouts are reconciled by hand against a spreadsheet once a month. This is the case ' +
+          'for reading the payout report instead - written up, never broken down, and shelved.',
+        created: '2026-01-22',
+        revisions: ['2026-01-22'],
+        archivedAt: '2026-04-15',
+        undecomposed: true,
+      },
+      {
         id: 'invoice-pdf-rendering',
         summary:
           'Invoices are HTML emails. Customers want a PDF that looks the same in ten years, ' +
@@ -519,6 +565,34 @@ const REPOS: RepoSpec[] = [
     title: 'Search Indexer',
     purpose: 'Builds and maintains the search index from the catalogue event stream.',
     changes: [
+      {
+        id: '2026-03-09-stopword-tuning',
+        summary:
+          'Stopwords are the English defaults, which drop three of the brand names. Half the ' +
+          'work landed; the rest was overtaken by the analyzer change and the whole thing was ' +
+          'put away as it stood.',
+        created: '2026-03-09',
+        revisions: ['2026-03-10', '2026-03-24'],
+        archivedAt: '2026-05-11',
+        sources: ['src/analysis/stopwords.ts'],
+        sections: [
+          {
+            title: '1. Lists',
+            tasks: [
+              { text: 'Move the stopword list out of the analyzer and into a file', doneAt: 0 },
+              { text: 'Keep the brand names out of the list, with a test naming all three', doneAt: 1 },
+              { text: 'Per-locale lists, defaulting to English' },
+            ],
+          },
+          {
+            title: '2. Rollout',
+            tasks: [
+              { text: 'Measure recall on the sampled query set before and after' },
+              { text: 'Reindex behind the flag, then compare the two indices' },
+            ],
+          },
+        ],
+      },
       {
         id: 'incremental-reindex',
         summary:
@@ -867,8 +941,15 @@ function designMarkdown(change: ChangeSpec): string {
   ].join('\n');
 }
 
-async function writeChange(root: string, change: ChangeSpec, revision: number): Promise<void> {
-  const dir = path.join(root, 'openspec', 'changes', change.id);
+async function writeChange(
+  root: string,
+  change: ChangeSpec,
+  revision: number,
+  archived = false,
+): Promise<void> {
+  const dir = archived
+    ? path.join(root, 'openspec', 'changes', 'archive', change.id)
+    : path.join(root, 'openspec', 'changes', change.id);
   await fs.mkdir(path.join(dir, 'specs', 'behaviour'), { recursive: true });
 
   await fs.writeFile(
@@ -961,7 +1042,17 @@ async function buildRepo(root: string, repo: RepoSpec): Promise<void> {
       if (revision < 0) {
         continue;
       }
-      await writeChange(root, change, revision);
+      const archived = change.archivedAt !== undefined && change.archivedAt <= date;
+      if (archived) {
+        // The active directory has to go, not merely be duplicated: `git add -A`
+        // then stages a deletion beside the addition, and the repository looks
+        // like one where somebody really ran `openspec archive`.
+        await fs.rm(path.join(root, 'openspec', 'changes', change.id), {
+          recursive: true,
+          force: true,
+        });
+      }
+      await writeChange(root, change, revision, archived);
       for (const source of change.sources ?? []) {
         const file = path.join(root, source);
         await fs.mkdir(path.dirname(file), { recursive: true });
@@ -974,7 +1065,11 @@ async function buildRepo(root: string, repo: RepoSpec): Promise<void> {
 }
 
 function REPO_DATES(repo: RepoSpec): string[] {
-  return repo.changes.flatMap((change) => change.revisions);
+  return repo.changes.flatMap((change) =>
+    // The archive date earns a commit of its own, otherwise the move would ride
+    // along with whatever unrelated revision happened to come next.
+    change.archivedAt === undefined ? change.revisions : [...change.revisions, change.archivedAt],
+  );
 }
 
 async function main(): Promise<void> {
@@ -996,7 +1091,11 @@ async function main(): Promise<void> {
     await fs.mkdir(root, { recursive: true });
     await buildRepo(root, repo);
     const decomposed = repo.changes.filter((c) => !c.undecomposed);
-    console.log(`  ${repo.dir.padEnd(28)} ${repo.changes.length} changes, ${decomposed.length} decomposed`);
+    const archived = repo.changes.filter((c) => c.archivedAt !== undefined);
+    console.log(
+      `  ${repo.dir.padEnd(28)} ${repo.changes.length} changes, ` +
+        `${decomposed.length} decomposed, ${archived.length} archived`,
+    );
   }
 
   // A directory with no `openspec/` at all, so discovery has something to skip.

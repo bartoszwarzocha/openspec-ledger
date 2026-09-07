@@ -18,7 +18,7 @@ import type {
   TreeOptions,
 } from '../model/types.ts';
 import { FILTER_MODES } from '../model/types.ts';
-import { flattenTasks, leafTasks, makeProgress, sumProgress } from '../model/keys.ts';
+import { changeKey, flattenTasks, leafTasks, makeProgress, sumProgress } from '../model/keys.ts';
 import {
   buildTree,
   changeDescription,
@@ -817,7 +817,7 @@ test('a filter that empties a root says which filter did it', () => {
 });
 
 test('every filter mode has a distinct label for the view title', () => {
-  const all = FILTER_MODES.map(filterLabel);
+  const all = FILTER_MODES.map((mode) => filterLabel(mode));
   assert.equal(new Set(all).size, FILTER_MODES.length);
   assert.ok(all.every((label) => label.length > 0 && label === label.trim()));
   assert.equal(filterLabel('all'), 'All changes');
@@ -985,4 +985,140 @@ test('the tooltip of an undecomposed change names the missing file, not a failur
 test('a one-day stall reads in the singular', () => {
   const change = changeWithTasks('yesterday', '/work/solo', 1, 2);
   assert.ok(changeTooltip(change, { days: 1, fromCreation: false }, undefined).includes('Stalled 1 day'));
+});
+
+// ---------------------------------------------------------------------------
+// The archive scope
+// ---------------------------------------------------------------------------
+
+const ROOT_ARCHIVE_A = '/work/alpha';
+const ROOT_ARCHIVE_B = '/work/beta';
+
+function archivedRootModel(): RootModel {
+  const model = makeRootModel('alpha', ROOT_ARCHIVE_A, [changeWithTasks('in-flight', ROOT_ARCHIVE_A, 1, 2)]);
+  return {
+    ...model,
+    archived: [
+      { ...changeWithTasks('add-cache', ROOT_ARCHIVE_A, 3, 3), archived: true },
+      { ...changeWithTasks('half-done', ROOT_ARCHIVE_A, 1, 4), archived: true },
+    ],
+  };
+}
+
+function changeLabels(nodes: readonly LedgerNode[]): string[] {
+  return nodes.filter((node) => node.kind === 'change').map((node) => node.label);
+}
+
+test('the archive scope builds the tree from the archive', () => {
+  const model = makeModel([archivedRootModel()]);
+  assert.deepEqual(changeLabels(buildTree(model, makeOptions({ scope: 'archive' }))), [
+    'add-cache',
+    'half-done',
+  ]);
+  assert.deepEqual(changeLabels(buildTree(model, makeOptions())), ['in-flight']);
+});
+
+test('an archived change is not offered to the Archive command', () => {
+  // `change-complete` is what package.json binds Archive to, so a finished
+  // change that is already in the archive must not match it.
+  const nodes = buildTree(makeModel([archivedRootModel()]), makeOptions({ scope: 'archive' }));
+  const finished = nodes.find((node) => node.label === 'add-cache');
+  assert.equal(finished?.contextValue, 'change-archived');
+  // It still starts with `change`, so open and reveal go on working.
+  assert.ok(finished?.contextValue?.startsWith('change'));
+});
+
+test('an archived change carries the warning icon for nothing', () => {
+  const stalls = stallsOf(ROOT_ARCHIVE_A, { 'half-done': 400 });
+  const nodes = buildTree(
+    makeModel([archivedRootModel()]),
+    makeOptions({ scope: 'archive', stalls, staleAfterDays: 30 }),
+  );
+  const shelved = nodes.find((node) => node.label === 'half-done');
+  assert.equal(shelved?.iconId, 'checklist');
+  assert.equal(shelved?.iconColor, undefined);
+});
+
+test('the badge counts what is ready to archive whichever scope is open', () => {
+  // Stepping into the archive does not un-finish the work waiting in the
+  // current list, so the standing reminder must not vanish with the view.
+  const model = makeModel([
+    makeRootModel('alpha', ROOT_ARCHIVE_A, [
+      changeWithTasks('done', ROOT_ARCHIVE_A, 4, 4),
+      changeWithTasks('open', ROOT_ARCHIVE_A, 1, 4),
+    ]),
+  ]);
+  const withArchive = makeModel([
+    { ...model.roots[0]!, archived: [{ ...changeWithTasks('old', ROOT_ARCHIVE_A, 9, 9), archived: true }] },
+  ]);
+  assert.equal(countReadyToArchive(withArchive), 1, 'the archived change is not counted again');
+});
+
+test('an empty archive says so rather than showing the no-roots welcome', () => {
+  const model = makeModel([makeRootModel('alpha', ROOT_ARCHIVE_A, [changeWithTasks('one', ROOT_ARCHIVE_A, 1, 2)])]);
+  const nodes = buildTree(model, makeOptions({ scope: 'archive' }));
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0]?.kind, 'message');
+  assert.match(nodes[0]?.label ?? '', /archived/i);
+});
+
+test('while discovery is running an empty archive stays quiet', () => {
+  const model = makeModel([makeRootModel('alpha', ROOT_ARCHIVE_A, [])]);
+  const nodes = buildTree(model, makeOptions({ scope: 'archive', loading: true }));
+  assert.ok(!nodes.some((node) => /Nothing has been archived yet/.test(node.label)));
+});
+
+test('a filter that empties the archive names the archive, not the active list', () => {
+  const nodes = buildTree(
+    makeModel([archivedRootModel(), makeRootModel('beta', ROOT_ARCHIVE_B, [])]),
+    makeOptions({ scope: 'archive', filter: 'stale' }),
+  );
+  const message = nodes
+    .flatMap((node) => (node.kind === 'root' ? node.children : [node]))
+    .find((node) => node.kind === 'message');
+  assert.match(message?.label ?? '', /never matches/);
+});
+
+test('the archive scope renames the filters that would otherwise mislead', () => {
+  assert.equal(filterLabel('ready-to-archive'), 'Ready to archive');
+  assert.equal(filterLabel('ready-to-archive', 'archive'), 'Finished');
+  assert.equal(filterLabel('active', 'archive'), 'Left unfinished');
+  // Everything else carries over rather than being restated.
+  assert.equal(filterLabel('all', 'archive'), filterLabel('all'));
+  assert.equal(filterLabel('undecomposed', 'archive'), filterLabel('undecomposed'));
+});
+
+test("a root's badge counts the archive when the archive is what is on screen", () => {
+  const model = makeModel([archivedRootModel(), makeRootModel('beta', ROOT_ARCHIVE_B, [])]);
+  const roots = buildTree(model, makeOptions({ scope: 'archive' }));
+  const alpha = roots.find((node) => node.label === 'alpha');
+  assert.equal(alpha?.description, '2 changes archived · 1 left unfinished');
+});
+
+test('the archive date rides on the badge without replacing the figures', () => {
+  const model = makeModel([archivedRootModel()]);
+  const archivedAt = { [changeKey(ROOT_ARCHIVE_A, 'add-cache')]: '2026-03-03' };
+  const nodes = buildTree(model, makeOptions({ scope: 'archive', archivedAt }));
+
+  const dated = nodes.find((node) => node.label === 'add-cache');
+  assert.equal(dated?.description, '3/3  100%  2026-03-03');
+  assert.match(dated?.tooltip ?? '', /Archived 2026-03-03/);
+
+  // A change git could not date shows the figures alone, never an "unknown".
+  const undated = nodes.find((node) => node.label === 'half-done');
+  assert.equal(undated?.description, '1/4  25%');
+  assert.match(undated?.tooltip ?? '', /Archived: this change lives under/);
+});
+
+test('an archive date is not applied to a change that is not archived', () => {
+  const model = makeModel([archivedRootModel()]);
+  const archivedAt = { [changeKey(ROOT_ARCHIVE_A, 'in-flight')]: '2026-03-03' };
+  const nodes = buildTree(model, makeOptions({ archivedAt }));
+  assert.equal(nodes.find((node) => node.label === 'in-flight')?.description, '1/2  50%');
+});
+
+test('changeDescription takes the date as an argument, so nothing else has to know', () => {
+  const change = { ...changeWithTasks('one', ROOT_ARCHIVE_A, 3, 3), archived: true };
+  assert.equal(changeDescription(change), '3/3  100%');
+  assert.equal(changeDescription(change, '2026-03-03'), '3/3  100%  2026-03-03');
 });

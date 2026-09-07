@@ -372,11 +372,18 @@ function renderHeader(content: ChangeDetailContent): string {
     ? escapeHtml(content.lastAdvanced)
     : '<span class="muted">no recorded advance</span>';
 
+  // The path already contains `/archive/`, but a reader scanning the header is
+  // reading the title, not parsing a path. This panel is the one place where
+  // mistaking finished work for work in flight costs real effort.
+  const archived = change.archived
+    ? ' &middot; <span class="archived-tag">archived</span>'
+    : '';
+
   return `<header>
 <h1>${escapeHtml(change.id)}</h1>
 <p class="subtitle">${escapeHtml(content.rootLabel)} &middot; <span class="path">${escapeHtml(
     change.path,
-  )}</span></p>
+  )}</span>${archived}</p>
 <div class="cards">
 <div class="card"><span class="card-label">Progress</span><span class="card-value">${progressText}</span></div>
 <div class="card"><span class="card-label">Created</span><span class="card-value">${created}</span></div>
@@ -703,6 +710,7 @@ code, pre { font-family: var(--vscode-editor-font-family, monospace); font-size:
 pre { margin: 4px 0 0; padding: 8px 10px; overflow-x: auto; white-space: pre; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(128,128,128,0.12)); }
 .subtitle { margin: 0 0 12px; color: var(--vscode-descriptionForeground); }
 .path { word-break: break-all; }
+.archived-tag { padding: 1px 7px; border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.35)); border-radius: 9px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
 .muted, .caption, .lede, .empty { color: var(--vscode-descriptionForeground); }
 .lede, .empty { max-width: 78ch; }
 .privacy { margin-top: 16px; font-size: 0.92em; color: var(--vscode-descriptionForeground); }

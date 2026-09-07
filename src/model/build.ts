@@ -10,10 +10,18 @@ import * as path from 'node:path';
 
 import type { Change, LedgerModel, OpenSpecRoot, Progress, RootModel } from './types.ts';
 import { sumProgress } from './keys.ts';
-import { FileCache, listChangeIds, readChange } from './changes.ts';
+import { FileCache, listArchivedChangeIds, listChangeIds, readChange } from './changes.ts';
 import type { ReadChangeOptions } from './changes.ts';
 import * as fsx from '../util/fsx.ts';
 import { log } from '../util/log.ts';
+
+export interface BuildOptions {
+  /**
+   * Also read `openspec/changes/archive/`. Off by default: the archive is only
+   * looked at when the reader has asked to see it.
+   */
+  includeArchived?: boolean;
+}
 
 export interface ModelBuilderOptions {
   /** Columns a tab advances in `tasks.md`. Default 4. */
@@ -35,13 +43,19 @@ export class ModelBuilder {
   }
 
   /** Rejects with the signal's reason when cancelled; never for a bad document. */
-  build(roots: readonly OpenSpecRoot[], signal?: AbortSignal): Promise<LedgerModel> {
-    return log.time(`model build over ${roots.length} root(s)`, async (): Promise<LedgerModel> => {
+  build(
+    roots: readonly OpenSpecRoot[],
+    signal?: AbortSignal,
+    options: BuildOptions = {},
+  ): Promise<LedgerModel> {
+    const archived = options.includeArchived === true;
+    const what = archived ? 'model build (with archive)' : 'model build';
+    return log.time(`${what} over ${roots.length} root(s)`, async (): Promise<LedgerModel> => {
       const models: RootModel[] = [];
       // Roots are built one at a time so a workspace with fourteen of them does
       // not put every change directory in flight at once.
       for (const root of roots) {
-        models.push(await this.buildRoot(root, signal));
+        models.push(await this.buildRoot(root, signal, archived));
       }
       return { roots: models, builtAt: new Date() };
     });
@@ -56,7 +70,11 @@ export class ModelBuilder {
     }
   }
 
-  private async buildRoot(root: OpenSpecRoot, signal?: AbortSignal): Promise<RootModel> {
+  private async buildRoot(
+    root: OpenSpecRoot,
+    signal: AbortSignal | undefined,
+    includeArchived: boolean,
+  ): Promise<RootModel> {
     signal?.throwIfAborted();
 
     const problems: string[] = [];
@@ -72,7 +90,23 @@ export class ModelBuilder {
     };
     const changes = await Promise.all(ids.map((id) => readChange(root, id, options)));
 
-    return { root, changes, progress: aggregate(changes), problems };
+    const model: RootModel = { root, changes, progress: aggregate(changes), problems };
+
+    // The archive is a record of finished work: it is read only while somebody
+    // is looking at it, so a project with three hundred archived changes costs
+    // nothing on the path that draws the active list.
+    if (includeArchived) {
+      signal?.throwIfAborted();
+      const archivedIds = await listArchivedChangeIds(root);
+      model.archived = await Promise.all(
+        archivedIds.map((id) => readChange(root, id, { ...options, archived: true })),
+      );
+    }
+
+    // Deliberately not folded into `progress`: a root's percentage answers
+    // "how far is the work in flight", and archived changes are all finished,
+    // so counting them would drag every root towards 100 percent for ever.
+    return model;
   }
 }
 

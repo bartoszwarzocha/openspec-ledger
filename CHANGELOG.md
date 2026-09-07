@@ -7,6 +7,77 @@ All notable changes to OpenSpec Ledger are recorded here. The format follows
 The version numbers follow the phasing set out in the change proposal: each release ends in
 something demonstrable rather than in a half-finished layer.
 
+## [0.2.0] - 2026-09-07
+
+### Added
+
+- **The archive, as a scope of its own.** `openspec/changes/archive/` was invisible until now.
+  Two buttons — **Current** and **Archive** — sit at the top of the Overview and in the view title
+  of the tree, and switch which list every surface is showing.
+
+  It is a scope rather than a seventh filter, and the difference is the whole design: a filter is a
+  lens on a list, so `All changes` has to go on meaning "everything in this list". Folding
+  archiving into the filter would have put finished, moved-away work back into every count, badge
+  and ranking the moment the filter was cleared. So archived changes stay out of the aggregates,
+  the ready-to-archive badge, the stalled ranking, the progress history and the movement report,
+  in both scopes.
+
+  Details that follow from that:
+  - An archived change is **never reported as stale**, whatever the threshold. It has not advanced
+    since the day it was archived and never will, so the warning would be permanent and therefore
+    worthless. The three remaining states then say the one useful thing about it: whether it was
+    finished when it was put away.
+  - Captions are rewritten for the archive — `archived 2026-03-03`,
+    `archived 2026-05-11, 3 tasks open`, `archived, not decomposed` — because "ready to archive"
+    on something already archived, and "last advanced" on something that never will again, both
+    describe a state the change has left.
+  - The **Archive** action is withheld from anything already in the archive, in the row button, the
+    bulk button and the context menu alike.
+  - Each scope remembers its own filter, and the tally's chips rename themselves where the word
+    would mislead: *complete* reads *finished*, *in progress* reads *left unfinished*.
+  - The ready-to-archive badge goes on counting the current scope while you are in the archive.
+    Work waiting for a decision does not stop waiting because you changed view.
+- **The archive date, from git.** Each archived change now carries the day it reached the archive:
+  `archived 2026-03-03` in the Overview, and beside the figures in the tree.
+
+  It is read from the commit that put the files at their archive path — one `git log` per root, not
+  one per change — because the two cheap answers on disk are both wrong often enough to be worse
+  than silence. A directory's mtime is reset by a fresh clone, and the date in a change's own id is
+  the day it was *created*, which is exactly the figure a reader would misread as the archive date
+  if it were the only one on the row. Where the history cannot answer — a shallow clone, a project
+  not under version control — the caption says `archived` and stops there.
+
+  Rename detection is switched off for that query on purpose: archiving is a pure rename, git
+  reports it as `R100`, and `--diff-filter=A` would therefore miss the one commit being asked
+  about.
+
+  Because the row now carries the archive date, the creation date in the change id steps back to
+  the tooltip. Two bare dates on one line, neither labelled, read as a range or as a mistake.
+
+  The read happens **after** the archive is on screen and republishes when it lands, so a slow
+  repository delays a date and never the list. A root is not asked again until its archive gains or
+  loses a change.
+- The archive is read from disk **only while it is on screen**, so a project with three hundred
+  archived changes costs nothing on the path that draws the active list.
+- The demo workspace generator now archives three changes — one finished, one shelved with work
+  still in it, one never decomposed — as real commits that move the directory, so the archive in a
+  screenshot is an archive a repository could actually have.
+- `scripts/tree-preview.ts` takes `--archive`, printing the tree the archive scope renders.
+
+### Changed
+
+- **Something to look at while a pass runs.** Pressing Archive could mean reading a directory
+  bigger than the active list, and until now that looked like nothing happening. The editor's own
+  progress bar now appears on both views for the length of any pass the reader set off — the first
+  load, Refresh, and a scope switch — the Overview draws a slim indeterminate bar and dims the rows
+  it is about to replace, and the tree says *Reading the archive…* above them.
+
+  Neither surface is rebuilt while it waits. Handing them the new scope over a model that has not
+  read it yet made the archive flash *Nothing has been archived yet* and then fill in, which looked
+  like the extension losing the answer and finding it again. A watcher-driven pass — an agent
+  writing `tasks.md` — still draws nothing at all: a progress bar that flickers all afternoon is one
+  the reader learns to stop seeing.
+
 ## [0.1.1] - 2026-09-04
 
 ### Added
