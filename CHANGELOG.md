@@ -7,6 +7,24 @@ All notable changes to OpenSpec Ledger are recorded here. The format follows
 The version numbers follow the phasing set out in the change proposal: each release ends in
 something demonstrable rather than in a half-finished layer.
 
+## [0.2.1] - 2026-09-09
+
+### Changed
+
+- **The archive tally chip reads `with tasks open` instead of `left unfinished`.** The old wording
+  said something was unfinished but not what, and the extension's own author read it as meaning a
+  change had been *partially* archived. There is no such thing — archiving moves a whole change
+  directory — so the label was inviting a conclusion the feature cannot support. The new wording
+  cannot be read that way and matches the row caption directly beneath it, which already says
+  `archived, 3 tasks open`.
+
+  Renamed everywhere the phrase appeared, not only on the chip: the chip sets the filter, and a
+  filter whose name in the view title disagreed with the chip that selected it would be a worse
+  confusion than the one being fixed.
+
+  The tally tooltip now uses a colon — `Show only: with tasks open`. Its template joined the label
+  into a sentence, which worked while every label was a single adjective and broke on a phrase.
+
 ## [0.2.0] - 2026-09-07
 
 ### Added
