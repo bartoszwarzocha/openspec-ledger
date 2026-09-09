@@ -1082,7 +1082,7 @@ test('a filter that empties the archive names the archive, not the active list',
 test('the archive scope renames the filters that would otherwise mislead', () => {
   assert.equal(filterLabel('ready-to-archive'), 'Ready to archive');
   assert.equal(filterLabel('ready-to-archive', 'archive'), 'Finished');
-  assert.equal(filterLabel('active', 'archive'), 'Left unfinished');
+  assert.equal(filterLabel('active', 'archive'), 'With tasks open');
   // Everything else carries over rather than being restated.
   assert.equal(filterLabel('all', 'archive'), filterLabel('all'));
   assert.equal(filterLabel('undecomposed', 'archive'), filterLabel('undecomposed'));
@@ -1092,7 +1092,7 @@ test("a root's badge counts the archive when the archive is what is on screen", 
   const model = makeModel([archivedRootModel(), makeRootModel('beta', ROOT_ARCHIVE_B, [])]);
   const roots = buildTree(model, makeOptions({ scope: 'archive' }));
   const alpha = roots.find((node) => node.label === 'alpha');
-  assert.equal(alpha?.description, '2 changes archived · 1 left unfinished');
+  assert.equal(alpha?.description, '2 changes archived · 1 with tasks open');
 });
 
 test('the archive date rides on the badge without replacing the figures', () => {

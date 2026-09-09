@@ -44,7 +44,7 @@ longest* ranking is that they describe work that can still be acted on.
   menus keep working.
 - **Captions and chips rewritten** where the active vocabulary would mislead: `archived`,
   `archived with 3 tasks open`, `archived, not decomposed`; *complete* reads *finished* and
-  *in progress* reads *left unfinished*.
+  *in progress* reads *with tasks open*.
 
 ## Impact
 

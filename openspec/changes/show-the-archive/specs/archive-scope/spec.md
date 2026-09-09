@@ -93,8 +93,10 @@ how many are open. A change archived without a task list SHALL say so.
 
 #### Scenario: The three captions
 - **WHEN** the archive holds a change at 3 of 3, one at 1 of 4, and one with no `tasks.md`
-- **THEN** their captions SHALL be `archived`, `archived with 3 tasks open`, and
+- **THEN** their captions SHALL be `archived`, `archived, 3 tasks open`, and
   `archived, not decomposed`
+- **AND** where git can date the move, the date SHALL join the caption:
+  `archived 2026-03-03`, `archived 2026-05-11, 3 tasks open`
 
 ### Requirement: Nothing in the archive can be archived again
 
@@ -126,5 +128,5 @@ current scope.
 
 #### Scenario: A filter that empties the archive
 - **GIVEN** an archive whose changes are all finished
-- **WHEN** the filter is *Left unfinished*
+- **WHEN** the filter is *With tasks open*
 - **THEN** the message SHALL name the archive rather than the active list

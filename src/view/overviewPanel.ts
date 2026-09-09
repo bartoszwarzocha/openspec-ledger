@@ -257,7 +257,7 @@ const STATUS_WORDS: Record<ChangeStatus, string> = {
  */
 const ARCHIVE_STATUS_WORDS: Partial<Record<ChangeStatus, string>> = {
   complete: 'finished',
-  active: 'left unfinished',
+  active: 'with tasks open',
 };
 
 function statusWord(status: ChangeStatus, scope: LedgerScope): string {
@@ -360,7 +360,10 @@ function renderHeader(totals: RootStatus, active: FilterMode, scope: LedgerScope
     const filter = STATUS_FILTERS[status];
     const on = filter === active;
     const label = escapeHtml(statusWord(status, scope));
-    const title = on ? `Showing only ${label} - click to show all` : `Show only ${label}`;
+    // Colon rather than a bare join: the words differ in grammatical shape
+    // - `finished` is an adjective, `with tasks open` a phrase - and no single
+    // sentence reads well with both. A label after a colon is a label.
+    const title = on ? `Showing only: ${label} - click to show all` : `Show only: ${label}`;
     return (
       `<button type="button" class="tally-item ${status}${on ? ' on' : ''}"` +
       ` data-filter="${on ? 'all' : filter}" title="${escapeHtml(title)}"` +

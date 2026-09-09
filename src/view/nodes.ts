@@ -441,14 +441,14 @@ const NOTHING_MATCHED: Record<FilterMode, string> = {
  */
 const ARCHIVE_FILTER_LABELS: Partial<Record<FilterMode, string>> = {
   'ready-to-archive': 'Finished',
-  active: 'Left unfinished',
-  unfinished: 'Left unfinished',
+  active: 'With tasks open',
+  unfinished: 'With tasks open',
 };
 
 const ARCHIVE_FILTER_NOUNS: Partial<Record<FilterMode, string>> = {
   'ready-to-archive': 'finished',
-  active: 'left unfinished',
-  unfinished: 'left unfinished',
+  active: 'with tasks open',
+  unfinished: 'with tasks open',
 };
 
 const ARCHIVE_NOTHING_MATCHED: Partial<Record<FilterMode, string>> = {
@@ -703,7 +703,7 @@ function rootDescription(
     const parts = [`${plural(total, 'change')} archived`];
     const unfinished = counts.active + counts.stale;
     if (unfinished > 0) {
-      parts.push(`${unfinished} left unfinished`);
+      parts.push(`${unfinished} with tasks open`);
     }
     return parts.join(' · ');
   }

@@ -34,7 +34,7 @@ something demonstrable rather than in a half-finished layer.
   - The **Archive** action is withheld from anything already in the archive, in the row button, the
     bulk button and the context menu alike.
   - Each scope remembers its own filter, and the tally's chips rename themselves where the word
-    would mislead: *complete* reads *finished*, *in progress* reads *left unfinished*.
+    would mislead: *complete* reads *finished*, *in progress* reads *with tasks open*.
   - The ready-to-archive badge goes on counting the current scope while you are in the archive.
     Work waiting for a decision does not stop waiting because you changed view.
 - **The archive date, from git.** Each archived change now carries the day it reached the archive:
