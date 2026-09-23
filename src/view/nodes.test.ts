@@ -593,7 +593,7 @@ function stallsOf(rootPath: string, days: Record<string, number>): TreeOptions['
   return out;
 }
 
-test('a change past the stale threshold trades its checklist for a warning', () => {
+test('a change past the stale threshold trades its dot for a warning', () => {
   const root = '/work/slipping';
   const model = makeModel([
     makeRootModel('.', root, [
@@ -609,7 +609,7 @@ test('a change past the stale threshold trades its checklist for a warning', () 
   const moving = at(nodes, 0);
   const parked = at(nodes, 1);
   assert.deepEqual(labels(nodes), ['moving', 'parked']);
-  assert.equal(moving.iconId, 'checklist');
+  assert.equal(moving.iconId, 'circle-filled');
   assert.equal(moving.iconColor, undefined, 'an advancing change uses the default foreground');
   assert.equal(parked.iconId, 'warning');
   assert.equal(parked.iconColor, 'list.warningForeground');
@@ -631,8 +631,8 @@ test('a stale threshold of zero switches the warning off entirely', () => {
   assert.equal(at(warned, 0).iconId, 'warning');
 
   const off = buildTree(model, makeOptions({ stalls, staleAfterDays: 0 }));
-  assert.equal(at(at(off, 0).children, 0).iconId, 'checklist');
-  assert.equal(at(off, 0).iconId, 'checklist');
+  assert.equal(at(at(off, 0).children, 0).iconId, 'circle-filled');
+  assert.equal(at(off, 0).iconId, 'circle-filled');
   assert.equal(at(off, 0).description, '1 change · 25%');
 });
 
@@ -657,10 +657,30 @@ test('a root is green only when every change under it is complete', () => {
   assert.equal(done.description, '2 changes · 2 done · 100%');
 
   const mixed = at(nodes, 1);
-  assert.equal(mixed.iconId, 'checklist');
+  assert.equal(mixed.iconId, 'circle-filled');
   assert.equal(mixed.iconColor, undefined);
   // One change of the two is finished, so the root is not green yet.
   assert.equal(mixed.description, '2 changes · 1 done · 60%');
+});
+
+test('a root holding nothing does not wear the icon of a root with work in it', () => {
+  const nodes = buildTree(
+    makeModel([
+      makeRootModel('busy', '/work/busy', [changeWithTasks('going', '/work/busy', 1, 2)]),
+      makeRootModel('empty', '/work/empty', []),
+    ]),
+    makeOptions(),
+  );
+
+  const busy = at(nodes, 0);
+  const empty = at(nodes, 1);
+  assert.equal(busy.iconId, 'circle-filled');
+  assert.equal(empty.description, '0 changes');
+  // The point is not which icon it is, but that the two cannot be confused:
+  // `rootStatusOf` has no state for "nothing here" and settles on `active`, so
+  // an empty root used to carry the badge of work in flight.
+  assert.notEqual(empty.iconId, busy.iconId);
+  assert.equal(empty.iconColor, 'disabledForeground');
 });
 
 test('one stale change puts the warning on the whole root', () => {
@@ -676,7 +696,7 @@ test('one stale change puts the warning on the whole root', () => {
     makeOptions({ stalls: stallsOf(root, { parked: 45 }) }),
   );
 
-  assert.equal(at(nodes, 0).iconId, 'checklist');
+  assert.equal(at(nodes, 0).iconId, 'circle-filled');
   const slipping = at(nodes, 1);
   assert.equal(slipping.iconId, 'warning');
   assert.equal(slipping.iconColor, 'list.warningForeground');
@@ -698,7 +718,7 @@ test('a root badge drops the counts that are zero and keeps the ones that are no
 
   const ideas = at(nodes, 0);
   // Nothing was ever broken down here, so there is no denominator to show.
-  assert.equal(ideas.iconId, 'lightbulb');
+  assert.equal(ideas.iconId, 'circle-outline');
   assert.equal(ideas.description, '2 changes');
 
   const busy = at(nodes, 1);
@@ -1035,7 +1055,7 @@ test('an archived change carries the warning icon for nothing', () => {
     makeOptions({ scope: 'archive', stalls, staleAfterDays: 30 }),
   );
   const shelved = nodes.find((node) => node.label === 'half-done');
-  assert.equal(shelved?.iconId, 'checklist');
+  assert.equal(shelved?.iconId, 'circle-filled');
   assert.equal(shelved?.iconColor, undefined);
 });
 

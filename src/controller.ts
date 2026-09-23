@@ -45,6 +45,7 @@ import { countReadyToArchive, filterLabel } from './view/nodes.ts';
 import { buildOverview } from './view/overview.ts';
 import { OverviewViewProvider } from './view/overviewPanel.ts';
 import { ChangeDetailPanel } from './view/detail.ts';
+import type { ChangeDetailUpdate } from './view/detail.ts';
 import { LedgerTreeDataProvider } from './view/tree.ts';
 import { applyToggle } from './view/writeback.ts';
 import { buildSectionPrompt, buildTaskPrompt } from './handoff/prompt.ts';
@@ -371,6 +372,58 @@ export class LedgerController implements vscode.Disposable {
       this.updateBadge(this.model);
     } else {
       this.view.badge = undefined;
+    }
+    this.refreshOpenDetails();
+  }
+
+  /**
+   * Fold this pass's figures into whatever detail panels are open.
+   *
+   * A panel used to be rendered once, when the change was clicked, and never
+   * touched again: tick a box while it was open and the tree and the overview
+   * moved while the panel went on showing the progress, the curve and the stall
+   * from the moment of the click, with nothing saying it had stopped being
+   * true. Two surfaces disagreeing and neither admitting it is the worst shape
+   * a stale view can take.
+   *
+   * Only what this pass has already computed is handed over. The evidence
+   * layers are not re-read - the git one is a search per completed task, and
+   * running it on every write an agent makes to `tasks.md` would spend the
+   * afternoon on it - so they stay, and the panel says what count they were
+   * read at once the change has moved past it.
+   *
+   * A panel for a change this pass cannot find is left alone rather than
+   * emptied: the change may be in the archive while the reader is looking at
+   * the current scope, and the figures it is showing are still the last true
+   * ones.
+   */
+  private refreshOpenDetails(): void {
+    if (!this.model) {
+      return;
+    }
+    for (const open of ChangeDetailPanel.openChanges()) {
+      const found = this.locate({
+        kind: 'change',
+        rootPath: open.rootPath,
+        changeId: open.changeId,
+      } as LedgerNode);
+      if (!found) {
+        continue;
+      }
+      const key = changeKey(found.root.path, found.change.id);
+      const next: ChangeDetailUpdate = {
+        change: found.change,
+        snapshots: this.store.history(found.root.path, found.change.id)?.snapshots ?? [],
+      };
+      const stall = this.stalls[key];
+      if (stall) {
+        next.stall = stall;
+      }
+      const advanced = this.lastAdvanced[key];
+      if (advanced !== undefined) {
+        next.lastAdvanced = advanced;
+      }
+      ChangeDetailPanel.refresh(open.key, next);
     }
   }
 
@@ -937,11 +990,7 @@ export class LedgerController implements vscode.Disposable {
       // Published on its own: the transcript scan below can take seconds more,
       // and holding a finished answer back to arrive with an unfinished one
       // would be spending the reader's time to save a redraw.
-      ChangeDetailPanel.update(key, {
-        ...base,
-        gitEvidence,
-        pending: { claude: claudeEnabled },
-      });
+      ChangeDetailPanel.update(key, { gitEvidence, pending: { claude: claudeEnabled } });
 
       if (claudeEnabled) {
         await this.transcripts.scan();
@@ -958,12 +1007,12 @@ export class LedgerController implements vscode.Disposable {
       if (!current()) {
         return;
       }
-      ChangeDetailPanel.update(key, { ...base, gitEvidence, claudeEvidence });
+      ChangeDetailPanel.update(key, { gitEvidence, claudeEvidence, pending: {} });
     } catch (error) {
       // A failed read must not leave the panel saying it is still reading.
       log.error(`evidence for ${change.id} could not be gathered`, error);
       if (current()) {
-        ChangeDetailPanel.update(key, { ...base });
+        ChangeDetailPanel.update(key, { pending: {} });
       }
     } finally {
       if (this.detailAborts.get(key) === abort) {

@@ -73,12 +73,29 @@ const TASK_ICONS: Record<TaskState, Icon> = {
  * states that call for a decision are coloured; colouring all four would leave
  * the eye nothing to land on.
  */
+/**
+ * A root holding no changes at all.
+ *
+ * Not a status: `rootStatusOf` has no state for "nothing here" and settles on
+ * `active`, which is the right answer to "is any of this finished" and the
+ * wrong picture entirely - an empty root then wore the same badge as a root
+ * with work in flight, and in a workspace where most roots are quiet that is
+ * most of the list claiming to be busy. The status stays as it is; only the
+ * paint changes, which is this file's job rather than `status.ts`'s.
+ */
+const EMPTY_ROOT_ICON: Icon = { iconId: 'dash', iconColor: 'disabledForeground' };
+
 const STATUS_ICONS: Record<ChangeStatus, Icon> = {
   complete: { iconId: 'pass-filled', iconColor: 'testing.iconPassed' },
   stale: { iconId: 'warning', iconColor: 'list.warningForeground' },
-  active: { iconId: 'checklist' },
-  // A proposal that was never broken down is an idea, not a failure.
-  undecomposed: { iconId: 'lightbulb' },
+  // A dot for work in motion and a bare ring for work that is only an outline:
+  // the same two shapes the overview draws, because the two surfaces are one
+  // vocabulary and a checklist beside a dot, or a lightbulb beside a dashed
+  // ring, made the reader learn it twice. A proposal that was never broken
+  // down is an idea rather than a failure, which is what an empty ring says
+  // and a warning would not.
+  active: { iconId: 'circle-filled' },
+  undecomposed: { iconId: 'circle-outline' },
 };
 
 /**
@@ -770,6 +787,7 @@ function rootNode(rootModel: RootModel, context: BuildContext): LedgerNode {
       statusFor(change, context.options),
     ),
   );
+  const empty = changesIn(rootModel, scopeOf(context.options)).length === 0;
   return {
     kind: 'root',
     id: uniqueId(nodeIdFor('root', rootModel.root.path), context.ids),
@@ -778,7 +796,7 @@ function rootNode(rootModel: RootModel, context: BuildContext): LedgerNode {
     tooltip: rootTooltip(rootModel.root, rootModel.problems, counts),
     // The point of the extension is that the state is visible before anything is
     // expanded, and a folder icon on fourteen roots says nothing at all.
-    ...STATUS_ICONS[counts.status],
+    ...(empty ? EMPTY_ROOT_ICON : STATUS_ICONS[counts.status]),
     contextValue: 'root',
     collapsible: 'collapsed',
     children,

@@ -47,8 +47,29 @@ export interface ChangeDetailContent {
    * cases are distinguished here rather than inferred from an absence.
    */
   pending?: { git?: boolean; claude?: boolean };
+  /**
+   * The completed count the evidence sections were read against.
+   *
+   * A pass may refresh this panel long after the evidence answered, and
+   * re-running either layer on every write to `tasks.md` is not affordable -
+   * the git one is a search per completed task. So the evidence stays, and this
+   * records what it was true of, which is what lets the section say so when the
+   * change has moved on underneath it.
+   */
+  evidenceAt?: number;
   onDismiss?: (taskKey: string) => void;
 }
+
+/** What a refresh may replace: everything a pass recomputes cheaply. */
+export type ChangeDetailUpdate = Pick<
+  ChangeDetailContent,
+  'change' | 'snapshots' | 'stall' | 'lastAdvanced'
+>;
+
+/** What an evidence layer may replace when it finally answers. */
+export type ChangeDetailEvidence = Partial<
+  Pick<ChangeDetailContent, 'gitEvidence' | 'claudeEvidence' | 'pending'>
+>;
 
 const VIEW_TYPE = 'openspecLedger.changeDetail';
 
@@ -116,13 +137,57 @@ export class ChangeDetailPanel {
    * they dismissed; revealing it would snatch focus back from whatever they
    * moved on to. Both are worse than the update quietly not happening.
    */
-  static update(key: string, content: ChangeDetailContent): void {
+  static update(key: string, evidence: ChangeDetailEvidence): void {
     const entry = panels.get(key);
     if (!entry) {
       return;
     }
+    // Merged, not replaced. A pass may have refreshed this panel's figures
+    // while the layer was reading - the git one takes seconds on a large change
+    // - and writing a whole content object built when the change was clicked
+    // would put the numbers from before that pass back on the screen.
+    const content: ChangeDetailContent = { ...entry.content, ...evidence };
+    if (evidence.gitEvidence !== undefined || evidence.claudeEvidence !== undefined) {
+      const at = content.change.taskFile?.progress.completed;
+      if (at !== undefined) {
+        content.evidenceAt = at;
+      }
+    }
     entry.content = content;
     entry.panel.webview.html = renderHtml(content, createNonce());
+  }
+
+  /**
+   * Fold a new pass's figures into a panel that is already open.
+   *
+   * The panel used to be rendered once and never touched again: tick a box
+   * while it was open and the tree moved while the panel went on showing the
+   * progress, the curve and the stall from the moment it was clicked, with
+   * nothing saying it had stopped being true.
+   *
+   * Only the cheap half is replaced. The evidence layers are left exactly as
+   * they were - re-reading them here would mean a git search per completed task
+   * on every write an agent makes to `tasks.md` - and `evidenceAt` records the
+   * count they answered for, so a section can admit that the change has moved
+   * since. Like `update`, this neither creates a panel nor reveals one.
+   */
+  static refresh(key: string, next: ChangeDetailUpdate): void {
+    const entry = panels.get(key);
+    if (!entry) {
+      return;
+    }
+    const content: ChangeDetailContent = { ...entry.content, ...next };
+    entry.content = content;
+    entry.panel.webview.html = renderHtml(content, createNonce());
+  }
+
+  /** The changes whose panels are open, so a pass knows what to refresh. */
+  static openChanges(): Array<{ key: string; rootPath: string; changeId: string }> {
+    return [...panels.entries()].map(([key, entry]) => ({
+      key,
+      rootPath: entry.content.change.rootPath,
+      changeId: entry.content.change.id,
+    }));
   }
 
   static dispose(): void {
@@ -348,6 +413,7 @@ export function renderHtml(content: ChangeDetailContent, nonce: string): string 
 <body>
 ${renderHeader(content)}
 ${renderHistory(content)}
+${renderEvidenceDrift(content)}
 ${renderGitEvidence(content.gitEvidence, content.pending?.git === true)}
 ${renderClaudeEvidence(content.claudeEvidence, content.pending?.claude === true)}
 <script nonce="${nonce}">${SCRIPT}</script>
@@ -422,6 +488,32 @@ function renderHeader(content: ChangeDetailContent): string {
 <div class="chips">${documents}</div>
 ${problems}
 </header>`;
+}
+
+/**
+ * Said once, above both evidence sections, when the change has moved since they
+ * were read.
+ *
+ * A pass refreshes the figures on an open panel but deliberately leaves the
+ * evidence alone, so the two halves of the page can be true of different
+ * moments. Silence about that would be the worse option: the tables would go on
+ * looking like an answer to the numbers above them. One sentence naming the
+ * count they were read at is enough, and re-reading is a click on the change.
+ */
+function renderEvidenceDrift(content: ChangeDetailContent): string {
+  const at = content.evidenceAt;
+  const now = content.change.taskFile?.progress.completed;
+  if (at === undefined || now === undefined || at === now) {
+    return '';
+  }
+  const gained = now - at;
+  const moved =
+    gained > 0
+      ? `${gained} more task${gained === 1 ? '' : 's'} ${gained === 1 ? 'has' : 'have'} been ticked since`
+      : `${-gained} fewer task${gained === -1 ? '' : 's'} ${gained === -1 ? 'is' : 'are'} ticked now`;
+  return `<p class="drift">The evidence below was read when ${at} ${
+    at === 1 ? 'task was' : 'tasks were'
+  } complete; ${moved}. Open the change again to read it against the current state.</p>`;
 }
 
 function renderHistory(content: ChangeDetailContent): string {
@@ -762,6 +854,16 @@ body {
 }
 h1 { font-size: 1.5em; font-weight: 600; margin: 20px 0 2px; }
 h2 { font-size: 1.1em; font-weight: 600; margin: 0 0 8px; }
+/* Said once above both evidence sections when the change has moved since they
+   were read. A rule down the edge rather than a banner: it is a qualification
+   on what follows, not news of its own. */
+.drift {
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--vscode-list-warningForeground);
+  background: var(--vscode-textBlockQuote-background);
+  color: var(--vscode-descriptionForeground);
+}
 h3 { font-size: 1em; font-weight: 600; margin: 20px 0 4px; }
 p { margin: 6px 0; }
 section { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.35)); }

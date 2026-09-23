@@ -7,6 +7,68 @@ All notable changes to OpenSpec Ledger are recorded here. The format follows
 The version numbers follow the phasing set out in the change proposal: each release ends in
 something demonstrable rather than in a half-finished layer.
 
+## [0.2.3] - 2026-09-23
+
+### Fixed
+
+- **Every Overview row now says which repository it is in, on a line of its own.** The root label,
+  and the creation date that a dated change id moves off the title, were written into the page and
+  then rendered at zero width - at every pane size, not only a narrow one. One selector was wrong:
+  the rule that makes the status icon span the row's lines was written against the row rather than
+  against the button inside it, so it never matched, and the second line was auto-placed into the
+  16-pixel icon column instead of beside it. The figures survived that - they are set not to wrap,
+  so they simply overflowed, which is why the row went on looking right - while the label, which is
+  allowed to shrink, was squeezed out of existence.
+
+  It stayed hidden because it fails silently and only in the case this extension exists for: with
+  one root there is no label to lose, and with fourteen the list gives no sign that anything is
+  missing.
+
+  The label now has a third line to itself rather than trailing the figures. Sharing a line made it
+  the part that gave way when the sidebar narrowed, and it gave way to nothing useful: two roots
+  under one parent truncate to the same prefix, so the one thing the label exists to answer - which
+  repository is this - was exactly what the truncation took. The row is a line taller for it.
+
+- **An open change detail panel now follows the change.** The panel was rendered once, when the
+  change was clicked, and never touched again. Tick a box while it was open and the tree and the
+  Overview moved while the panel went on showing the progress, the curve, the last-advanced date
+  and the stall from the moment of the click - and the stall in particular never aged, so a panel
+  left open overnight still read `Still 3 days`. Nothing said any of it had stopped being true.
+  Clicking the change again silently put it right, which is what kept the fault from being
+  noticed and named.
+
+  Every pass now folds its figures into whatever panels are open. The evidence layers are
+  deliberately not re-read: the git one is a search per completed task, and running it on every
+  write an agent makes to `tasks.md` would spend the afternoon on it. So they stay as they were,
+  and once the change has moved past the count they answered for, one line above them says which
+  count that was. Two halves of a page true of different moments is acceptable; not saying so is
+  not.
+
+  A panel whose change this pass cannot find is left alone rather than emptied - it may be in the
+  archive while the reader is in the current scope, and the figures on it are still the last true
+  ones.
+
+  `update` merges now instead of replacing. It carried a whole content object built when the
+  change was clicked, so an evidence layer answering after a pass had refreshed the panel put the
+  pre-pass numbers back on the screen.
+
+- **The tree and the Overview now draw a status with the same symbol.** Both surfaces decide status
+  in one place and then painted it from two icon tables that had drifted apart: work in progress was
+  a checklist in the tree and a dot in the Overview, and a change that was never broken down was a
+  lightbulb against a dashed ring. Complete and stale already agreed. The extension was asking the
+  reader to learn its vocabulary twice and to trust that the two readings meant the same thing.
+
+  The tree follows the Overview, which has the more consistent set: a dot for work in motion, a
+  bare ring for work that is still only an outline. The empty root from the entry below takes a
+  dash rather than a ring, so it cannot be read as a status at all.
+
+- **A root holding no changes no longer wears the badge of a root with work in flight.** There is
+  no status for "nothing here": `rootStatusOf` settles on `active`, which answers "is any of this
+  finished" correctly and paints the wrong picture entirely. In a workspace where most roots are
+  quiet, most of the list was claiming to be busy, and the icon contradicted the `0 changes` beside
+  it on the same line. An empty root now carries a dimmed outline instead. The status itself is
+  unchanged - only the paint, which is the tree's decision rather than the model's.
+
 ## [0.2.2] - 2026-09-23
 
 ### Fixed

@@ -317,7 +317,7 @@ function renderRow(row: OverviewRow, showRoot: boolean, archived: boolean): stri
     (part): part is string => part !== undefined,
   );
   const context =
-    trailing.length > 0 ? `<span class="context">${escapeHtml(trailing.join(' · '))}</span>` : '';
+    trailing.length > 0 ? `<span class="line3">${escapeHtml(trailing.join(' · '))}</span>` : '';
   const title = `${row.changeId} - ${row.rootLabel} - ${row.note}`;
   const where = `data-root="${escapeHtml(row.rootPath)}" data-change="${escapeHtml(row.changeId)}"`;
 
@@ -333,8 +333,9 @@ function renderRow(row: OverviewRow, showRoot: boolean, archived: boolean): stri
   return `<div class="row ${row.status}">
 <button type="button" class="row-main" ${where} title="${escapeHtml(title)}">
 ${icon(row.status)}
-<span class="line1"><span class="change-id">${escapeHtml(name)}</span></span>
-<span class="line2"><span class="stats">${stats}</span>${context}</span>
+<span class="lines"><span class="line1"><span class="change-id">${escapeHtml(name)}</span></span>
+<span class="line2"><span class="stats">${stats}</span></span>
+${context}</span>
 </button>${action}
 </div>`;
 }
@@ -634,7 +635,6 @@ p { margin: 0 0 6px; }
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
   column-gap: 8px;
-  row-gap: 3px;
   align-items: start;
   flex: 1 1 auto;
   min-width: 0;
@@ -675,8 +675,14 @@ p { margin: 0 0 6px; }
   outline-offset: -1px;
   background: var(--vscode-list-hoverBackground);
 }
-.row > .icon { grid-row: 1 / span 2; margin-top: 1px; }
+.row-main > .icon { margin-top: 1px; }
+/* The lines are one block beside the icon rather than three grid items sharing
+   a column with it. A row carries two or three of them depending on whether it
+   has a root label, and spanning the icon across a count that changes per row
+   is what put the third line on top of the second. */
+.lines { display: block; min-width: 0; }
 .line1 { display: block; min-width: 0; }
+.line2, .line3 { margin-top: 3px; }
 .change-id {
   display: block;
   overflow: hidden;
@@ -684,18 +690,24 @@ p { margin: 0 0 6px; }
   white-space: nowrap;
   font-weight: 600;
 }
-.context {
-  flex: 0 1 auto;
-  margin-left: auto;
+/* A line of its own rather than the tail of the figures.
+   Sharing line 2 made the label the part that gave way in a narrow sidebar, and
+   it gave way to nothing useful: two roots under the same parent truncate to
+   the same prefix, so the one thing the label exists to answer - which
+   repository is this - was exactly what the truncation took. On its own line it
+   has the full width. */
+.line3 {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.6;
+  font-size: 0.92em;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.75;
 }
-/* One flexible line rather than a grid of columns: the figures and the state
-   belong together as a phrase, and a fixed column between them was pulling them
-   apart. Where the change lives is the least useful of the three, so it trails
-   at the end and dims. */
+/* The figures and the state belong together as a phrase, so they share one
+   line rather than sitting in a grid of columns. */
 .line2 {
   display: flex;
   align-items: baseline;
