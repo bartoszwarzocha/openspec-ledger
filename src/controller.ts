@@ -684,7 +684,12 @@ export class LedgerController implements vscode.Disposable {
       return;
     }
     await this.context.workspaceState.update(SORT_MODE_KEY, picked.mode);
-    this.tree.setOptions({ sortMode: picked.mode });
+    // `publish` rather than `this.tree.setOptions`, which redraws the tree and
+    // nothing else. The sort button sits in the title of both views, so picking
+    // an order from the Overview redrew the surface the reader was not looking
+    // at and left the one in front of them in the previous order until some
+    // later pass - a scope switch, a Refresh - happened to redraw it.
+    this.publish();
   }
 
   private async setFilter(filter: FilterMode): Promise<void> {

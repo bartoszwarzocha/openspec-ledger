@@ -7,6 +7,20 @@ All notable changes to OpenSpec Ledger are recorded here. The format follows
 The version numbers follow the phasing set out in the change proposal: each release ends in
 something demonstrable rather than in a half-finished layer.
 
+## [0.2.2] - 2026-09-23
+
+### Fixed
+
+- **Picking a sort order now redraws the Overview, instead of only the tree.** The sort button sits
+  in the title of both views, but the command behind it rebuilt the tree and nothing else. Picking
+  an order while standing in the Overview therefore reordered the surface you were not looking at
+  and left the one in front of you as it was, until some later pass happened to redraw it - a
+  switch to **Current** and back, or a **Refresh**. The order had in fact been saved the whole
+  time; only the drawing was missing, which is the worst version of the bug, because the setting
+  that *looks* ignored is the one you stop trusting.
+
+  It now publishes both surfaces, the same way changing the filter always has.
+
 ## [0.2.1] - 2026-09-09
 
 ### Changed
