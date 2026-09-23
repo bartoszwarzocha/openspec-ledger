@@ -7,9 +7,45 @@ All notable changes to OpenSpec Ledger are recorded here. The format follows
 The version numbers follow the phasing set out in the change proposal: each release ends in
 something demonstrable rather than in a half-finished layer.
 
-## [0.2.3] - 2026-09-23
+## [0.2.1] - 2026-09-23
+
+### Changed
+
+- **The archive tally chip reads `with tasks open` instead of `left unfinished`.** The old wording
+  said something was unfinished but not what, and the extension's own author read it as meaning a
+  change had been *partially* archived. There is no such thing — archiving moves a whole change
+  directory — so the label was inviting a conclusion the feature cannot support. The new wording
+  cannot be read that way and matches the row caption directly beneath it, which already says
+  `archived, 3 tasks open`.
+
+  Renamed everywhere the phrase appeared, not only on the chip: the chip sets the filter, and a
+  filter whose name in the view title disagreed with the chip that selected it would be a worse
+  confusion than the one being fixed.
+
+  The tally tooltip now uses a colon — `Show only: with tasks open`. Its template joined the label
+  into a sentence, which worked while every label was a single adjective and broke on a phrase.
+
+- **The tree and the Overview now draw a status with the same symbol.** Both surfaces decide status
+  in one place and then painted it from two icon tables that had drifted apart: work in progress was
+  a checklist in the tree and a dot in the Overview, and a change that was never broken down was a
+  lightbulb against a dashed ring. Complete and stale already agreed. The extension was asking the
+  reader to learn its vocabulary twice and to trust that the two readings meant the same thing.
+
+  The tree follows the Overview, which has the more consistent set: a dot for work in motion, a
+  bare ring for work that is still only an outline. The empty root from the entry below takes a
+  dash rather than a ring, so it cannot be read as a status at all.
 
 ### Fixed
+
+- **Picking a sort order now redraws the Overview, instead of only the tree.** The sort button sits
+  in the title of both views, but the command behind it rebuilt the tree and nothing else. Picking
+  an order while standing in the Overview therefore reordered the surface you were not looking at
+  and left the one in front of you as it was, until some later pass happened to redraw it - a
+  switch to **Current** and back, or a **Refresh**. The order had in fact been saved the whole
+  time; only the drawing was missing, which is the worst version of the bug, because the setting
+  that *looks* ignored is the one you stop trusting.
+
+  It now publishes both surfaces, the same way changing the filter always has.
 
 - **Every Overview row now says which repository it is in, on a line of its own.** The root label,
   and the creation date that a dated change id moves off the title, were written into the page and
@@ -28,6 +64,13 @@ something demonstrable rather than in a half-finished layer.
   the part that gave way when the sidebar narrowed, and it gave way to nothing useful: two roots
   under one parent truncate to the same prefix, so the one thing the label exists to answer - which
   repository is this - was exactly what the truncation took. The row is a line taller for it.
+
+- **A root holding no changes no longer wears the badge of a root with work in flight.** There is
+  no status for "nothing here": `rootStatusOf` settles on `active`, which answers "is any of this
+  finished" correctly and paints the wrong picture entirely. In a workspace where most roots are
+  quiet, most of the list was claiming to be busy, and the icon contradicted the `0 changes` beside
+  it on the same line. An empty root now carries a dimmed outline instead. The status itself is
+  unchanged - only the paint, which is the tree's decision rather than the model's.
 
 - **An open change detail panel now follows the change.** The panel was rendered once, when the
   change was clicked, and never touched again. Tick a box while it was open and the tree and the
@@ -51,55 +94,6 @@ something demonstrable rather than in a half-finished layer.
   `update` merges now instead of replacing. It carried a whole content object built when the
   change was clicked, so an evidence layer answering after a pass had refreshed the panel put the
   pre-pass numbers back on the screen.
-
-- **The tree and the Overview now draw a status with the same symbol.** Both surfaces decide status
-  in one place and then painted it from two icon tables that had drifted apart: work in progress was
-  a checklist in the tree and a dot in the Overview, and a change that was never broken down was a
-  lightbulb against a dashed ring. Complete and stale already agreed. The extension was asking the
-  reader to learn its vocabulary twice and to trust that the two readings meant the same thing.
-
-  The tree follows the Overview, which has the more consistent set: a dot for work in motion, a
-  bare ring for work that is still only an outline. The empty root from the entry below takes a
-  dash rather than a ring, so it cannot be read as a status at all.
-
-- **A root holding no changes no longer wears the badge of a root with work in flight.** There is
-  no status for "nothing here": `rootStatusOf` settles on `active`, which answers "is any of this
-  finished" correctly and paints the wrong picture entirely. In a workspace where most roots are
-  quiet, most of the list was claiming to be busy, and the icon contradicted the `0 changes` beside
-  it on the same line. An empty root now carries a dimmed outline instead. The status itself is
-  unchanged - only the paint, which is the tree's decision rather than the model's.
-
-## [0.2.2] - 2026-09-23
-
-### Fixed
-
-- **Picking a sort order now redraws the Overview, instead of only the tree.** The sort button sits
-  in the title of both views, but the command behind it rebuilt the tree and nothing else. Picking
-  an order while standing in the Overview therefore reordered the surface you were not looking at
-  and left the one in front of you as it was, until some later pass happened to redraw it - a
-  switch to **Current** and back, or a **Refresh**. The order had in fact been saved the whole
-  time; only the drawing was missing, which is the worst version of the bug, because the setting
-  that *looks* ignored is the one you stop trusting.
-
-  It now publishes both surfaces, the same way changing the filter always has.
-
-## [0.2.1] - 2026-09-09
-
-### Changed
-
-- **The archive tally chip reads `with tasks open` instead of `left unfinished`.** The old wording
-  said something was unfinished but not what, and the extension's own author read it as meaning a
-  change had been *partially* archived. There is no such thing — archiving moves a whole change
-  directory — so the label was inviting a conclusion the feature cannot support. The new wording
-  cannot be read that way and matches the row caption directly beneath it, which already says
-  `archived, 3 tasks open`.
-
-  Renamed everywhere the phrase appeared, not only on the chip: the chip sets the filter, and a
-  filter whose name in the view title disagreed with the chip that selected it would be a worse
-  confusion than the one being fixed.
-
-  The tally tooltip now uses a colon — `Show only: with tasks open`. Its template joined the label
-  into a sentence, which worked while every label was a single adjective and broke on a phrase.
 
 ## [0.2.0] - 2026-09-07
 
