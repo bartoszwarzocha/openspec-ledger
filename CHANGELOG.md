@@ -72,6 +72,18 @@ something demonstrable rather than in a half-finished layer.
   it on the same line. An empty root now carries a dimmed outline instead. The status itself is
   unchanged - only the paint, which is the tree's decision rather than the model's.
 
+- **The Overview follows the editor theme instead of the desktop.** Its body was left unpainted,
+  so the panel showed the user agent's own canvas - and with a light-dark colour scheme declared,
+  that canvas is chosen from the desktop's light/dark preference rather than from the theme. A
+  light theme on a dark desktop therefore drew the scope buttons and the tally from the theme,
+  because the sticky header paints itself, and the whole list below them from the desktop: grey
+  text on black, inside an otherwise light editor.
+
+  The body now paints from the sidebar background, and the colour scheme is bound to the theme
+  class VS Code puts on the body, so the scrollbars and form controls follow it too. The detail
+  panel already painted its own background and never showed the fault, which is what made the
+  difference easy to miss.
+
 - **An open change detail panel now follows the change.** The panel was rendered once, when the
   change was clicked, and never touched again. Tick a box while it was open and the tree and the
   Overview moved while the panel went on showing the progress, the curve, the last-advanced date

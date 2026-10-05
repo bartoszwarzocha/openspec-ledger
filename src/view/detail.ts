@@ -842,7 +842,14 @@ function renderCheckedWithoutCode(evidence: ChangeClaudeEvidence): string {
  * same as the editor around it in light, dark and high-contrast themes.
  */
 const STYLES = `
+/* VS Code puts the theme kind on the body, and the canvas has to follow it.
+   On its own, a light-dark declaration hands the canvas, the scrollbars and
+   the form controls to the desktop's preference instead - which is how a light
+   theme on a dark desktop ended up with a dark panel. The first rule is the
+   fallback for a host that sets no class. */
 :root { color-scheme: light dark; }
+body.vscode-dark, body.vscode-high-contrast { color-scheme: dark; }
+body.vscode-light, body.vscode-high-contrast-light { color-scheme: light; }
 body {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);

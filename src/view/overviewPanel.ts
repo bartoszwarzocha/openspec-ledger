@@ -493,12 +493,23 @@ ${body}
 }
 
 const STYLES = `
+/* VS Code puts the theme kind on the body, and the canvas has to follow it.
+   On its own, a light-dark declaration hands the canvas, the scrollbars and
+   the form controls to the desktop's preference instead - which is how a light
+   theme on a dark desktop ended up with a dark panel. The first rule is the
+   fallback for a host that sets no class. */
 :root { color-scheme: light dark; }
+body.vscode-dark, body.vscode-high-contrast { color-scheme: dark; }
+body.vscode-light, body.vscode-high-contrast-light { color-scheme: light; }
 body {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   color: var(--vscode-foreground);
-  background: transparent;
+  /* Painted, not left transparent. An unpainted body shows the user agent's
+     own canvas, which is chosen from the desktop's light/dark preference and
+     not from the editor theme, so a light theme on a dark desktop drew the
+     header from the theme and the list from the desktop. */
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
   margin: 0;
   padding: 0 0 12px;
   line-height: 1.35;
