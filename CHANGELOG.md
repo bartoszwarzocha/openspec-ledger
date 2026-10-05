@@ -7,7 +7,7 @@ All notable changes to OpenSpec Ledger are recorded here. The format follows
 The version numbers follow the phasing set out in the change proposal: each release ends in
 something demonstrable rather than in a half-finished layer.
 
-## [0.2.1] - 2026-09-23
+## [0.2.1] - 2026-10-05
 
 ### Changed
 
